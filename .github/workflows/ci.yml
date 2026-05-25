@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build + tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies (with dev extras)
+        run: uv sync --python ${{ matrix.python-version }} --extra dev
+
+      - name: Verify imports
+        run: |
+          uv run --python ${{ matrix.python-version }} python -c "
+          from colombian_open_data_mcp import server, socrata, soql
+          assert hasattr(server, 'mcp')
+          assert callable(socrata.SocrataClient)
+          assert callable(soql.build_filter_clause)
+          print('OK: imports clean')
+          "
+
+      - name: Run pytest (hermetic, no network)
+        run: uv run --python ${{ matrix.python-version }} pytest -v
+
+      - name: Verify entry point launches
+        run: |
+          uv run --python ${{ matrix.python-version }} colombian-open-data-mcp < /dev/null &
+          PID=$!
+          sleep 2
+          if kill -0 $PID 2>/dev/null; then
+            echo "OK"
+            kill $PID
+          else
+            wait $PID
+            EXIT=$?
+            if [ $EXIT -eq 0 ]; then
+              echo "OK: clean EOF exit"
+            else
+              echo "FAIL: exit $EXIT"
+              exit 1
+            fi
+          fi
+
+      - name: Build wheel + sdist
+        run: uv build
+
+      - name: Validate server.json against MCP Registry
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+          ./mcp-publisher validate
