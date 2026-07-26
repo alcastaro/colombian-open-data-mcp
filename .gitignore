@@ -11,3 +11,27 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+
+# Claude Code local files (NEVER commit)
+CLAUDE.md
+.claude/
+
+# Everything about how we work stays out of the public repo.
+#
+# One directory, one rule — deliberately a directory and not a file list.
+# Listing documents by name fails quietly: a new report lands in the root,
+# nobody remembers to add a line, and one `git add -A` publishes the internal
+# analysis. A directory cannot be forgotten.
+#
+#   internal/reportes/   analysis and audit write-ups
+#   internal/plan/       workplan, roadmaps
+#   internal/pruebas/    manual test protocols
+#   internal/archivo/    superseded versions
+internal/
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
