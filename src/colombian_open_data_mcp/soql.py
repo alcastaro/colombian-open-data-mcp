@@ -16,7 +16,6 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-
 # ─── Identifier discipline ────────────────────────────────────────────────────
 #
 # Socrata column names ("field_name" in their parlance) are typically lowercase
@@ -24,7 +23,7 @@ from typing import Any, Literal
 # allowlist below covers both, plus the accented-Latin range for Spanish field
 # names that some datos.gov.co publishers use.
 
-_IDENT_OK = re.compile(r'^[\w .À-ſ]+$', re.UNICODE)
+_IDENT_OK = re.compile(r"^[\w .À-ſ]+$", re.UNICODE)
 _IDENT_FORBIDDEN_SUBSTR = ("--", "/*", "*/", ";")
 
 
@@ -65,15 +64,37 @@ def quote_literal(value: Any) -> str:
 # ─── Filters ──────────────────────────────────────────────────────────────────
 
 ALLOWED_OPS = {
-    "=", "!=", "<>", "<", "<=", ">", ">=",
-    "in", "not_in", "contains", "starts_with", "ends_with",
-    "is_null", "is_not_null",
+    "=",
+    "!=",
+    "<>",
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "in",
+    "not_in",
+    "contains",
+    "starts_with",
+    "ends_with",
+    "is_null",
+    "is_not_null",
 }
 
 Op = Literal[
-    "=", "!=", "<>", "<", "<=", ">", ">=",
-    "in", "not_in", "contains", "starts_with", "ends_with",
-    "is_null", "is_not_null",
+    "=",
+    "!=",
+    "<>",
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "in",
+    "not_in",
+    "contains",
+    "starts_with",
+    "ends_with",
+    "is_null",
+    "is_not_null",
 ]
 
 
@@ -131,8 +152,15 @@ def build_where(filters: list[dict] | None) -> str | None:
 # ─── Aggregations ─────────────────────────────────────────────────────────────
 
 ALLOWED_AGG_FNS = {
-    "count", "count_distinct", "sum", "avg", "mean", "median",
-    "min", "max", "stddev",
+    "count",
+    "count_distinct",
+    "sum",
+    "avg",
+    "mean",
+    "median",
+    "min",
+    "max",
+    "stddev",
 }
 
 
@@ -148,11 +176,13 @@ def build_agg_expr(agg: dict) -> str:
 
     if fn == "count" and col in (None, "*"):
         return f"count(*) AS {alias_q}"
+    # Every remaining function names a column. Saying so once here beats a
+    # confusing "expected str, got None" from quote_ident five branches down.
+    if col is None:
+        raise SoqlError(f"Aggregation {fn!r} requires a column name in 'col'")
     if fn == "count":
         return f"count({quote_ident(col)}) AS {alias_q}"
     if fn == "count_distinct":
-        if col is None:
-            raise SoqlError("count_distinct requires col")
         return f"count(DISTINCT {quote_ident(col)}) AS {alias_q}"
     if fn in ("avg", "mean"):
         return f"avg({quote_ident(col)}) AS {alias_q}"
@@ -173,6 +203,8 @@ def build_order_by(order_by: list[dict] | None) -> str | None:
     parts: list[str] = []
     for ob in order_by:
         col = ob.get("col")
+        if col is None:
+            raise SoqlError("Each order_by entry needs a 'col'")
         direction = (ob.get("dir") or "asc").lower()
         if direction not in ("asc", "desc"):
             raise SoqlError(f"Invalid order direction: {direction}")

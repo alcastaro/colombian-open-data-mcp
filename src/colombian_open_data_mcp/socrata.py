@@ -31,13 +31,14 @@ from typing import Any
 
 import httpx
 
+from . import USER_AGENT
+
 PORTAL_HOST = "www.datos.gov.co"
 PORTAL_URL = f"https://{PORTAL_HOST}"
 CATALOG_API_BASE = "https://api.us.socrata.com/api/catalog/v1"
 DOMAIN_API_BASE = f"https://{PORTAL_HOST}/api"
 RESOURCE_API_BASE = f"https://{PORTAL_HOST}/resource"
 
-USER_AGENT = "colombian-open-data-mcp/0.1 (MCP Server; +https://github.com/alcastaro/colombian-open-data-mcp)"
 DEFAULT_TIMEOUT = 20.0
 
 # Output trimming so single calls never blow up the LLM context.
@@ -124,9 +125,7 @@ class SocrataClient:
 
         if r.status_code >= 400:
             body_excerpt = r.text[:300] if r.text else "(no body)"
-            raise SocrataError(
-                f"HTTP {r.status_code} from {url}: {body_excerpt}"
-            )
+            raise SocrataError(f"HTTP {r.status_code} from {url}: {body_excerpt}")
         try:
             return r.json()
         except ValueError as e:
@@ -178,9 +177,7 @@ class SocrataClient:
 
     async def domain_categories(self) -> list[str]:
         """Top-level categories on the portal (Socrata's group equivalent)."""
-        data = await self._get_json(
-            f"{DOMAIN_API_BASE}/catalog/v1/domain_categories"
-        )
+        data = await self._get_json(f"{DOMAIN_API_BASE}/catalog/v1/domain_categories")
         results = data.get("results", []) if isinstance(data, dict) else []
         return [r.get("domain_category", r) if isinstance(r, dict) else r for r in results]
 
@@ -205,9 +202,7 @@ class SocrataClient:
             for r in results
         ]
 
-    async def autocomplete(
-        self, kind: str, query: str, limit: int = 10
-    ) -> list[str]:
+    async def autocomplete(self, kind: str, query: str, limit: int = 10) -> list[str]:
         """Free-text autocomplete against the catalog.
 
         Socrata's catalog API exposes /autocomplete which returns matched
@@ -224,10 +219,8 @@ class SocrataClient:
                 },
             )
             opts = data.get("results", []) if isinstance(data, dict) else []
-            return [
-                o.get("title") if isinstance(o, dict) else o
-                for o in opts
-            ][: max(int(limit), 1)]
+            titles = [o.get("title") if isinstance(o, dict) else o for o in opts]
+            return [str(t) for t in titles if t][: max(int(limit), 1)]
         if kind == "tag":
             tags = await self.domain_tags()
             q = (query or "").lower()
@@ -240,11 +233,9 @@ class SocrataClient:
             owners = await self.domain_owners(limit=200)
             q = (query or "").lower()
             return [
-                o.get("owner")
-                for o in owners
-                if o.get("owner") and q in (o.get("owner") or "").lower()
+                str(o["owner"]) for o in owners if o.get("owner") and q in str(o["owner"]).lower()
             ][: max(int(limit), 1)]
-        raise ValueError(f"kind must be one of: dataset, tag, category, owner")
+        raise ValueError("kind must be one of: dataset, tag, category, owner")
 
     # ─── View / dataset metadata ──────────────────────────────────────────
 
@@ -252,17 +243,13 @@ class SocrataClient:
         """Full dataset metadata via the views API."""
         if not is_valid_4x4(four_by_four):
             raise SocrataError(f"Not a valid 4x4 id: {four_by_four!r}")
-        return await self._get_json(
-            f"{DOMAIN_API_BASE}/views/{four_by_four}.json"
-        )
+        return await self._get_json(f"{DOMAIN_API_BASE}/views/{four_by_four}.json")
 
     async def get_view_metadata(self, four_by_four: str) -> dict[str, Any]:
         """Lighter metadata via the metadata v1 endpoint."""
         if not is_valid_4x4(four_by_four):
             raise SocrataError(f"Not a valid 4x4 id: {four_by_four!r}")
-        return await self._get_json(
-            f"{DOMAIN_API_BASE}/views/metadata/v1/{four_by_four}"
-        )
+        return await self._get_json(f"{DOMAIN_API_BASE}/views/metadata/v1/{four_by_four}")
 
     # ─── Per-resource data with SoQL ──────────────────────────────────────
 
@@ -277,9 +264,7 @@ class SocrataClient:
         url = f"{RESOURCE_API_BASE}/{four_by_four}.json"
         result = await self._get_json(url, soql_params or {})
         if not isinstance(result, list):
-            raise SocrataError(
-                f"Expected list from {url}, got {type(result).__name__}"
-            )
+            raise SocrataError(f"Expected list from {url}, got {type(result).__name__}")
         return result
 
     async def site_stats(self) -> dict[str, Any]:

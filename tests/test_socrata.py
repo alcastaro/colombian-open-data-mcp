@@ -6,7 +6,6 @@ import pytest
 
 from colombian_open_data_mcp import socrata
 
-
 # ─── 4x4 validation ───────────────────────────────────────────────────────────
 
 
@@ -16,9 +15,9 @@ from colombian_open_data_mcp import socrata
         ("abcd-1234", True),
         ("a1b2-c3d4", True),
         ("ABCD-1234", False),  # Socrata uses lowercase
-        ("abcd1234", False),   # No dash
-        ("abc-1234", False),   # Wrong length
-        ("abcd-12345", False), # Wrong length
+        ("abcd1234", False),  # No dash
+        ("abc-1234", False),  # Wrong length
+        ("abcd-12345", False),  # Wrong length
         ("", False),
         (None, False),
     ],

@@ -6,7 +6,6 @@ import pytest
 
 from colombian_open_data_mcp import soql
 
-
 # ─── quote_ident ──────────────────────────────────────────────────────────────
 
 
@@ -74,9 +73,7 @@ def test_filter_lt():
 
 
 def test_filter_in_list():
-    out = soql.build_filter_clause(
-        {"col": "estatus", "op": "in", "val": ["activo", "pasivo"]}
-    )
+    out = soql.build_filter_clause({"col": "estatus", "op": "in", "val": ["activo", "pasivo"]})
     assert out == "`estatus` IN ('activo', 'pasivo')"
 
 
@@ -86,17 +83,13 @@ def test_filter_in_requires_list():
 
 
 def test_filter_contains_uses_upper_like():
-    out = soql.build_filter_clause(
-        {"col": "nombre", "op": "contains", "val": "PEREZ"}
-    )
+    out = soql.build_filter_clause({"col": "nombre", "op": "contains", "val": "PEREZ"})
     assert out.startswith("upper(`nombre`) LIKE")
     assert "PEREZ" in out
 
 
 def test_filter_starts_with():
-    out = soql.build_filter_clause(
-        {"col": "nombre", "op": "starts_with", "val": "ANA"}
-    )
+    out = soql.build_filter_clause({"col": "nombre", "op": "starts_with", "val": "ANA"})
     assert "LIKE upper('ANA%')" in out
 
 
@@ -144,16 +137,12 @@ def test_agg_count_col():
 
 
 def test_agg_count_distinct():
-    out = soql.build_agg_expr(
-        {"col": "nombre", "fn": "count_distinct", "alias": "personas"}
-    )
+    out = soql.build_agg_expr({"col": "nombre", "fn": "count_distinct", "alias": "personas"})
     assert out == "count(DISTINCT `nombre`) AS `personas`"
 
 
 def test_agg_sum():
-    out = soql.build_agg_expr(
-        {"col": "valor", "fn": "sum", "alias": "suma"}
-    )
+    out = soql.build_agg_expr({"col": "valor", "fn": "sum", "alias": "suma"})
     assert out == "sum(`valor`) AS `suma`"
 
 
