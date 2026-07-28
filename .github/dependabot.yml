@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      dev-deps:
+        patterns: ["ruff", "mypy", "pytest*"]
+    # The mcp pin has a deliberate upper bound (SDK 2.x removed the FastMCP
+    # import path). Let Dependabot see minor bumps but never propose crossing
+    # the major, which would open a PR that cannot pass CI.
+    ignore:
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
