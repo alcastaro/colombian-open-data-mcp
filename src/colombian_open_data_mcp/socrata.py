@@ -32,6 +32,7 @@ from typing import Any
 import httpx
 
 from . import USER_AGENT
+from .retry import get_with_retries
 
 PORTAL_HOST = "www.datos.gov.co"
 PORTAL_URL = f"https://{PORTAL_HOST}"
@@ -44,6 +45,25 @@ DEFAULT_TIMEOUT = 20.0
 # Output trimming so single calls never blow up the LLM context.
 DESC_TRUNC = 300
 NOTES_TRUNC = 300
+
+# Socrata asset types on this domain, with the counts measured on 2026-08-29.
+# `dataset` is the obvious one; `filter` is the surprising one — a saved view
+# with its own 4x4 that answers the data API exactly like a dataset does.
+ASSET_TYPES = {
+    "dataset",  # 8,391
+    "filter",  # 2,197 — saved views, queryable
+    "chart",  # 681
+    "href",  # 473 — external links, not queryable
+    "story",  # 365
+    "map",  # 133
+    "file",  # 9
+    "calendar",  # 2
+}
+
+# Asset types whose 4x4 answers /resource/<id>.json with rows. The others carry
+# metadata worth finding but have no table behind them, and saying so up front
+# beats letting a model discover it through an error.
+QUERYABLE_ASSET_TYPES = {"dataset", "filter", "chart", "map"}
 
 # Socrata 4x4 IDs look like "abcd-1234" — always 4 chars + dash + 4 chars.
 _FOURBYFOUR = re.compile(r"^[a-z0-9]{4}-[a-z0-9]{4}$")
@@ -117,7 +137,7 @@ class SocrataClient:
     async def _get_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
         client = await self._get_client()
         try:
-            r = await client.get(url, params=self._clean(params or {}))
+            r = await get_with_retries(client, url, self._clean(params or {}))
         except httpx.TimeoutException as e:
             raise SocrataError(f"timeout calling {url} (>{DEFAULT_TIMEOUT}s)") from e
         except httpx.HTTPError as e:
@@ -139,21 +159,33 @@ class SocrataClient:
         query: str | None = None,
         categories: str | None = None,
         tags: str | None = None,
+        asset_type: str = "dataset",
         limit: int = 10,
         offset: int = 0,
     ) -> dict[str, Any]:
-        """Search datasets in the datos.gov.co catalog.
+        """Search the datos.gov.co catalog.
 
-        Hits api.us.socrata.com which understands domain-scoped queries.
-        Returns the raw catalog body (use format_catalog_search to summarise).
+        Hits api.us.socrata.com, which understands domain-scoped queries.
+        Returns the raw catalog body (use format_catalog_response to summarise).
+
+        ``asset_type`` used to be hardcoded to ``dataset``, which hid 3,860
+        assets. Saved views (``filter``) in particular are fully queryable
+        through the data API under their own 4x4 id — the historical
+        Representative Market Exchange Rate is one of them — so excluding them
+        cost real coverage for no reason. Pass ``any`` to search everything.
         """
         params: dict[str, Any] = {
             "domains": PORTAL_HOST,
             "search_context": PORTAL_HOST,
-            "only": "dataset",
             "limit": min(max(int(limit), 1), 100),
             "offset": max(int(offset), 0),
         }
+        if asset_type and asset_type != "any":
+            if asset_type not in ASSET_TYPES:
+                raise SocrataError(
+                    f"asset_type must be one of {sorted(ASSET_TYPES)} or 'any', got {asset_type!r}"
+                )
+            params["only"] = asset_type
         if query:
             params["q"] = query
         if categories:
@@ -299,6 +331,14 @@ class SocrataClient:
             "total_datasets": cat.get("resultSetSize"),
             "total_categories": len(cats) if isinstance(cats, list) else None,
             "total_tags": len(tags) if isinstance(tags, list) else None,
+            "asset_types_searchable": sorted(ASSET_TYPES),
+            "asset_types_queryable": sorted(QUERYABLE_ASSET_TYPES),
+            "note": (
+                "total_datasets counts only assets of type 'dataset'. The portal "
+                "also publishes saved views ('filter'), charts and maps that are "
+                "queryable through the same data API — pass asset_type to "
+                "search_datasets to reach them."
+            ),
         }
 
 
@@ -327,6 +367,7 @@ def format_catalog_dataset(item: dict) -> dict:
         "name": resource.get("name"),
         "description": _truncate(resource.get("description"), NOTES_TRUNC),
         "type": resource.get("type"),
+        "queryable": resource.get("type") in QUERYABLE_ASSET_TYPES,
         "row_count": resource.get("count_estimate") or resource.get("rows_count"),
         "columns": [
             {

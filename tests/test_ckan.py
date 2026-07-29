@@ -85,17 +85,24 @@ def test_invalid_dataset_ids_rejected(value):
         "INCLUIDOS EN VIGILANCIA CENTINELA",
         "tasa_x_100.000",
         "área (m2)",
-        # Regression: the stress run over 300 random datasets hit these two and
-        # the validator rejected them, turning a valid projection into an error.
+        # Each of these broke a previous version of the rule, in this order.
         "MES:",
         "Nombre:",
+        "Fecha & Hora",
+        "VR. SUBSIDIO $",
+        "Otro idioma Cual?",
+        # The portal mangling its own encoding. Still a column somebody selects.
+        "Correo electr¢nico",
+        "PISCINA NI¥OS",
     ],
 )
-def test_real_bogota_column_names_accepted(value):
-    """These are shapes taken from the live portal, not invented ones.
+def test_real_column_names_accepted(value):
+    """Taken from 1,308 column names surveyed across the live Bogotá and Cali
+    DataStores, not invented.
 
-    294 column names were collected from live DataStore resources to build the
-    allowlist; every one of these appears in that set.
+    The character allowlist this replaced was wrong twice — once on a colon,
+    once on an ampersand — which is why the rule is now a denylist. A public
+    catalogue will keep publishing headers no enumeration anticipates.
     """
     assert ckan.is_valid_column(value)
 
@@ -108,15 +115,48 @@ def test_real_bogota_column_names_accepted(value):
         "col--comment",
         "col/*x*/",
         "a" * 200,
-        'col" OR "1"="1',
         "col\nInjected",
+        "col\tTabbed",
+        "col\x00nul",
         # A whole malformed CSV row the portal exposes as one header name. Real,
         # and correctly refused — the semicolons are not decorative.
         "111006;Cuenta de ahorro;69600000;BANCO AGRARIO DE COLOMBIA;129.",
     ],
 )
 def test_dangerous_column_names_rejected(value):
+    """Only four sequences plus control characters are refused, and each earns
+    it: statement/comment breaks, and raw control characters in a request
+    parameter. Refusing a column costs projection, never access."""
     assert not ckan.is_valid_column(value)
+
+
+def test_a_sql_shaped_name_is_harmless_here_but_not_in_soql():
+    """The two clients have genuinely different threat models, and this is the
+    clearest illustration of it.
+
+    On the CKAN path no SQL is ever built: column names go into a query-string
+    parameter that httpx percent-encodes, CKAN matches them against its own
+    schema and answers "no such field". So a quote-and-OR string is not a
+    threat, only a typo, and refusing it would cost real column names for a
+    defence against nothing.
+
+    On the SoQL path the same string is composed into a query language the
+    portal executes, so it is refused there. Asserting both together keeps a
+    future reader from "fixing" the CKAN rule to match the SoQL one.
+    """
+    from colombian_open_data_mcp import soql
+
+    probe = 'col" OR "1"="1'
+    assert ckan.is_valid_column(probe)
+    with pytest.raises(soql.SoqlError):
+        soql.quote_ident(probe)
+
+
+def test_the_rejected_semicolon_names_are_portal_garbage():
+    """Every ';' name observed across 1,308 real ones was a whole malformed CSV
+    row exposed as a single header, so refusing them costs nothing real."""
+    assert not ckan.is_valid_column("111006;Cuenta de ahorro;69600000;BANCO AGRARIO;129.")
+    assert not ckan.is_valid_column("99;0;")
 
 
 async def test_rejection_message_says_what_to_do_instead(client):
@@ -157,9 +197,13 @@ async def test_success_false_raises_even_on_http_200(client, httpx_mock):
 
 
 async def test_http_error_raises_ckan_error(client, httpx_mock):
-    httpx_mock.add_response(url=f"{API}/tag_list", status_code=503, text="upstream down")
+    """503 is retried before it is reported, so the stub answers every attempt."""
+    httpx_mock.add_response(
+        url=f"{API}/tag_list", status_code=503, text="upstream down", is_reusable=True
+    )
     with pytest.raises(ckan.CkanError, match="HTTP 503"):
         await client.action("tag_list")
+    assert len(httpx_mock.get_requests()) == 3
 
 
 async def test_non_json_body_raises_ckan_error(client, httpx_mock):
@@ -354,7 +398,15 @@ async def test_datastore_limit_is_capped(client, httpx_mock):
 def test_portal_urls_are_built_from_the_host():
     """The Dominican client hardcoded its host in every permalink; this one
     derives them, which is what makes a second city possible."""
-    p = ckan.CkanPortal(key="x", host="ejemplo.gov.co", name="X", city="X", ckan_version="2.10")
+    p = ckan.CkanPortal(
+        key="x",
+        host="ejemplo.gov.co",
+        name="X",
+        city="X",
+        ckan_version="2.10",
+        prefix="x",
+        approx_datasets=10,
+    )
     assert p.base_url == "https://ejemplo.gov.co"
     assert p.api_url == "https://ejemplo.gov.co/api/3/action"
     assert p.dataset_url("d") == "https://ejemplo.gov.co/dataset/d"

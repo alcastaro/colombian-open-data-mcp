@@ -140,7 +140,10 @@ async def test_valid_4x4_reaches_the_views_endpoint(client, httpx_mock):
 
 
 async def test_http_error_becomes_socrata_error_with_body_excerpt(client, httpx_mock):
-    httpx_mock.add_response(url=ANY_CATALOG, status_code=503, text="upstream unavailable")
+    """503 is retried before it is reported; the excerpt survives the retries."""
+    httpx_mock.add_response(
+        url=ANY_CATALOG, status_code=503, text="upstream unavailable", is_reusable=True
+    )
     with pytest.raises(socrata.SocrataError, match="HTTP 503"):
         await client.catalog_search(query="x")
 
@@ -152,7 +155,7 @@ async def test_timeout_becomes_socrata_error(client, httpx_mock):
 
 
 async def test_transport_error_becomes_socrata_error(client, httpx_mock):
-    httpx_mock.add_exception(httpx.ConnectError("dns"), url=ANY_CATALOG)
+    httpx_mock.add_exception(httpx.ConnectError("dns"), url=ANY_CATALOG, is_reusable=True)
     with pytest.raises(socrata.SocrataError, match="network error"):
         await client.catalog_search(query="x")
 

@@ -125,7 +125,7 @@ variable:
 ```
 
 The token is sent only to `datos.gov.co` and Socrata's catalog API, never
-logged, and never used for the Bogotá portal — CKAN has no equivalent.
+logged, and never used for the city portals — CKAN has no equivalent.
 
 ## Troubleshooting
 
@@ -136,13 +136,13 @@ Your `uvx` cache is stale. `uvx --refresh colombian-open-data-mcp`.
 You are on a build older than 0.2.0 that resolved MCP SDK 2.x. Upgrade:
 `pip install -U colombian-open-data-mcp`.
 
-**A Bogotá tool returns an error mentioning a WAF.**
-That portal refuses some programmatic requests by its own rules. It is not a
-bug in this server and retrying often works. National-portal tools are
-unaffected.
+**A city tool returns an error mentioning a WAF.**
+Bogotá and Cali both refuse some programmatic requests by their own rules. It is
+not a bug in this server, and transient failures are already retried three times
+before you see one. National-portal tools are unaffected.
 
-**A Bogotá dataset has no queryable resource.**
-Most of that catalogue is published as files rather than through the DataStore,
+**A city dataset has no queryable resource.**
+Most of those catalogues are published as files rather than through the DataStore,
 much of it geospatial: measured over 300 random datasets, about 13% return rows.
 `bogota_get_dataset` marks each resource `queryable: true/false`; when it is
 false the download URL is all there is.

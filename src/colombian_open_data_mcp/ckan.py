@@ -47,6 +47,7 @@ from typing import Any
 import httpx
 
 from . import USER_AGENT
+from .retry import get_with_retries
 
 DEFAULT_TIMEOUT = 30.0
 
@@ -67,6 +68,12 @@ class CkanPortal:
     name: str
     city: str
     ckan_version: str
+    # Tool prefix. Also the only thing separating one portal's tools from
+    # another's in the MCP surface.
+    prefix: str
+    # Roughly how many datasets the catalogue holds, for tool descriptions. A
+    # model choosing between portals benefits from knowing which is larger.
+    approx_datasets: int
 
     @property
     def base_url(self) -> str:
@@ -92,7 +99,26 @@ BOGOTA = CkanPortal(
     name="Datos Abiertos Bogotá",
     city="Bogotá D.C.",
     ckan_version="2.10.4",
+    prefix="bogota",
+    approx_datasets=1917,
 )
+
+# Cali runs the same CKAN release as Bogotá with the same extensions, and
+# refuses datastore_search_sql the same way (403 rather than Bogotá's 400 —
+# different guard, identical consequence). Verified 2026-08-29. Adding it cost
+# this descriptor and nothing else, which is the whole reason the client takes
+# one instead of hardcoding a host the way the Dominican server does.
+CALI = CkanPortal(
+    key="cali",
+    host="datos.cali.gov.co",
+    name="Datos Abiertos Cali",
+    city="Santiago de Cali",
+    ckan_version="2.10.4",
+    prefix="cali",
+    approx_datasets=657,
+)
+
+PORTALS = {p.key: p for p in (BOGOTA, CALI)}
 
 
 # CKAN accepts either a UUID or the URL slug ("name") wherever it says "id".
@@ -105,27 +131,35 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{1,99}$")
 # DataStore column names. CKAN quotes these itself, but the allowlist is cheap
 # and keeps one habit across both clients rather than two different rules a
 # reader has to hold in their head.
-# Built from evidence, not guesswork: 294 real column names were collected from
-# DataStore resources across the catalogue and the character set below is what
-# they actually use. Colons appear in legitimate names ("MES:", "Nombre:") and
-# were being rejected, which is how a valid projection turned into an error.
+# CKAN DataStore column names.
 #
-# Deliberately still excluded, and the cost of each is bounded:
-#   ";"  appears only in names that are a whole malformed CSV row misparsed as
-#        one header (e.g. "111006;Cuenta de ahorro;69600000;..."). Garbage, and
-#        a statement separator.
-#   "\n" appears in 2 of 294 names. Legitimate but rare, and a raw newline in a
-#        query parameter is a habit not worth keeping.
-# Losing these costs projection, not access: omitting `columns` returns every
-# field including the unnameable ones.
-_COLUMN = re.compile(r"^[\w .\-À-ſ()/%°#:]{1,120}$")
-
-# The allowlist above has to admit a hyphen, because real Bogotá columns use
-# one. That admits "--" as a side effect, which is a SQL comment opener, so the
-# denylist closes it explicitly. Same defence-in-depth shape as soql.py: an
-# allowlist that must be permissive is paired with a denylist of the exact
-# sequences that matter.
-_COLUMN_FORBIDDEN = ("--", "/*", "*/", ";", "\x00")
+# This started as a character allowlist and was wrong twice: first it refused
+# ``MES:``, then it refused ``Fecha & Hora``. Both are real column names on
+# these portals. The lesson is structural, not a matter of adding two more
+# characters — a Colombian government catalogue will keep publishing headers no
+# enumeration anticipates. Surveying 1,308 real column names from Bogotá and
+# Cali turned up spaces, accents, ``? $ & % ° # : ( ) / . -``, and mojibake
+# where the portal mangled its own encoding (``Correo electr¢nico``,
+# ``PISCINA NI¥OS``). Every one of those is a column somebody needs to select.
+#
+# So the rule is inverted. The security boundary was never the allowlist: these
+# names go into a query-string parameter that httpx percent-encodes, and CKAN
+# quotes them itself. What actually has to be refused is a short, closed set:
+#
+#   ``;`` ``--`` ``/*`` ``*/``  statement and comment sequences. Every ``;``
+#                              case observed was an entire malformed CSV row
+#                              the portal exposes as one header, so refusing it
+#                              costs nothing real.
+#   control characters         newlines included. Four names carry one; httpx
+#                              would encode it safely, but a raw control
+#                              character in a request parameter is a habit
+#                              worth not having.
+#
+# Everything else printable is allowed, capped at 120 characters. Refusing a
+# column costs projection, never access: omitting ``columns`` returns every
+# field, including the ones this rule will not name.
+_COLUMN_MAX = 120
+_COLUMN_FORBIDDEN = ("--", "/*", "*/", ";")
 
 
 class CkanError(RuntimeError):
@@ -150,15 +184,19 @@ def is_valid_dataset_id(value: str) -> bool:
 def is_valid_column(value: str) -> bool:
     """True if value is an acceptable DataStore column name.
 
-    Bogotá's column names are Spanish and irregular — real examples include
-    ``INCLUIDOS EN VIGILANCIA CENTINELA`` and ``Año`` — so the allowlist has to
-    admit spaces, accents and a few punctuation marks that a stricter identifier
-    rule would reject.
+    Real examples these portals publish, all accepted:
+    ``INCLUIDOS EN VIGILANCIA CENTINELA``, ``Año``, ``MES:``, ``Fecha & Hora``,
+    ``VR. SUBSIDIO $``, ``Otro idioma Cual?``, ``área (m2)``.
+
+    See the note above ``_COLUMN_FORBIDDEN`` for why this is a denylist rather
+    than the character allowlist it used to be.
     """
     value = value or ""
+    if not value or len(value) > _COLUMN_MAX:
+        return False
     if any(bad in value for bad in _COLUMN_FORBIDDEN):
         return False
-    return bool(_COLUMN.match(value))
+    return not any(ch.isspace() and ch != " " or ord(ch) < 32 or ord(ch) == 127 for ch in value)
 
 
 def _truncate(s: str | None, n: int) -> str | None:
@@ -217,7 +255,7 @@ class CkanClient:
         client = await self._get_client()
         url = f"{self.portal.api_url}/{name}"
         try:
-            r = await client.get(url, params=self._clean(params or {}))
+            r = await get_with_retries(client, url, self._clean(params or {}))
         except httpx.TimeoutException as e:
             raise CkanError(f"timeout calling {name} (>{DEFAULT_TIMEOUT}s)") from e
         except httpx.HTTPError as e:
@@ -325,11 +363,11 @@ class CkanClient:
             "datastore_sql_available": False,
             "datastore_note": (
                 "datastore_search_sql is not enabled on this portal, so there is no "
-                "server-side SQL or GROUP BY. Use bogota_filter_resource for typed "
-                "filtering. Measured over 300 random datasets, about 27% carry a "
-                "resource flagged DataStore-backed and about 13% actually return "
-                "rows — the catalogue's flag is unreliable, so treat a 404 as the "
-                "portal's metadata being wrong rather than as your mistake."
+                f"server-side SQL or GROUP BY. Use {self.portal.prefix}_filter_resource "
+                "for typed filtering. The catalogue's datastore_active flag is "
+                "unreliable — a substantial share of flagged resources answer 404 "
+                "because no table exists — so treat a 404 as the portal's metadata "
+                "being wrong rather than as your mistake."
             ),
         }
 

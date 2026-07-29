@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "colombian-open-data-mcp"
-version = "0.2.0"
-description = "MCP server for Colombia's open government data — datos.gov.co (Socrata) and datosabiertos.bogota.gov.co (CKAN)."
+version = "0.3.0"
+description = "MCP server for Colombia's open government data — datos.gov.co (Socrata), Bogotá and Cali (CKAN)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -17,6 +17,7 @@ keywords = [
     "datos-abiertos",
     "colombia",
     "bogota",
+    "cali",
     "socrata",
     "soda-api",
     "ckan",
@@ -67,6 +68,7 @@ Changelog = "https://github.com/alcastaro/colombian-open-data-mcp/blob/main/CHAN
 "Bug Tracker" = "https://github.com/alcastaro/colombian-open-data-mcp/issues"
 Portal = "https://www.datos.gov.co"
 "Portal Bogotá" = "https://datosabiertos.bogota.gov.co"
+"Portal Cali" = "https://datos.cali.gov.co"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/colombian_open_data_mcp"]

@@ -47,11 +47,13 @@ jobs:
       - name: Verify package imports
         run: |
           uv run --python ${{ matrix.python-version }} python -c "
-          from colombian_open_data_mcp import server, socrata, soql, ckan
+          from colombian_open_data_mcp import server, socrata, soql, ckan, ckan_tools, retry
           assert hasattr(server, 'mcp')
           assert hasattr(server, 'main')
           assert callable(socrata.SocrataClient)
           assert callable(ckan.CkanClient)
+          assert callable(ckan_tools.register)
+          assert callable(retry.get_with_retries)
           assert callable(soql.build_where)
           print('OK: all modules import cleanly')
           "
@@ -69,9 +71,14 @@ jobs:
           import asyncio
           from colombian_open_data_mcp.server import mcp
           from colombian_open_data_mcp import __version__
-          names = [t.name for t in asyncio.run(mcp.list_tools())]
-          assert len(names) == 20, names
-          assert sum(n.startswith('bogota_') for n in names) == 8, names
+          tools = asyncio.run(mcp.list_tools())
+          names = [t.name for t in tools]
+          assert len(names) == 28, names
+          for city in ('bogota_', 'cali_'):
+              assert sum(n.startswith(city) for n in names) == 8, (city, names)
+          blank = [t.name for t in tools if not (t.description or '').strip()]
+          assert not blank, f'tools with no description: {blank}'
+          assert all(t.annotations and t.annotations.readOnlyHint for t in tools)
           opts = mcp._mcp_server.create_initialization_options()
           assert opts.server_version == __version__, opts.server_version
           print(f'OK: {len(names)} tools, serverInfo.version={opts.server_version}')

@@ -26,10 +26,10 @@ The seed is recorded in the report so any run can be reproduced exactly.
 
 Usage
 -----
-    uv run python sweep/stress_test.py                    # 300 datasets, 50/50
-    uv run python sweep/stress_test.py --total 600
+    uv run python sweep/stress_test.py                    # 450 datasets, evenly split
+    uv run python sweep/stress_test.py --total 900
     uv run python sweep/stress_test.py --seed 42 --concurrency 4
-    uv run python sweep/stress_test.py --only bogota
+    uv run python sweep/stress_test.py --only bogota      # or national, cali
 
 Politeness
 ----------
@@ -67,7 +67,7 @@ REPORT_DIR = ROOT / "internal" / "reportes"
 # Catalogue sizes, refreshed at run time. These are only fallbacks for the
 # random-offset draw if the count call itself fails.
 FALLBACK_NATIONAL = 8391
-FALLBACK_BOGOTA = 1917
+FALLBACK_CKAN = {"bogota": 1917, "cali": 657}
 
 # Formats a hypothetical download-and-parse layer could read. Used to size the
 # gap honestly: the rest is geospatial and no CSV parser would help.
@@ -82,6 +82,8 @@ class Probe:
     """One dataset put through the tools, with every outcome recorded."""
 
     portal: str
+    prefix: str = ""
+    city: str = ""
     dataset_id: str = ""
     title: str = ""
     steps: dict[str, str] = field(default_factory=dict)  # step -> ok | error class
@@ -149,7 +151,7 @@ async def probe_national(item: dict) -> Probe:
     res = item.get("resource") or {}
     p = Probe(portal="datos.gov.co", dataset_id=res.get("id", ""), title=res.get("name", "")[:90])
 
-    meta = await timed(p, "get_dataset", server.get_dataset(id=p.dataset_id))
+    meta = await timed(p, "get_dataset", _tool("get_dataset")(id=p.dataset_id))
     columns: list[dict] = []
     if isinstance(meta, dict) and "error" not in meta:
         columns = meta.get("columns") or []
@@ -158,7 +160,7 @@ async def probe_national(item: dict) -> Probe:
         p.n_queryable = 1
 
     preview = await timed(
-        p, "download_dataset_preview", server.download_dataset_preview(id=p.dataset_id, rows=2)
+        p, "download_dataset_preview", _tool("download_dataset_preview")(id=p.dataset_id, rows=2)
     )
     if isinstance(preview, dict) and "error" not in preview:
         p.row_sample_ok = bool(preview.get("rows"))
@@ -166,7 +168,7 @@ async def probe_national(item: dict) -> Probe:
     agg = await timed(
         p,
         "aggregate_dataset",
-        server.aggregate_dataset(
+        _tool("aggregate_dataset")(
             id=p.dataset_id, aggregations=[{"col": None, "fn": "count", "alias": "n"}]
         ),
     )
@@ -186,7 +188,7 @@ async def probe_national(item: dict) -> Probe:
             await timed(
                 p,
                 "filter_dataset",
-                server.filter_dataset(id=p.dataset_id, columns=[col], limit=2),
+                _tool("filter_dataset")(id=p.dataset_id, columns=[col], limit=2),
             )
     return p
 
@@ -194,14 +196,28 @@ async def probe_national(item: dict) -> Probe:
 # ─── Bogotá (CKAN) ───────────────────────────────────────────────────────────
 
 
-async def probe_bogota(pkg: dict) -> Probe:
+def _tool(name: str):
+    """The callable behind a registered tool name.
+
+    The city tools are closures produced by ckan_tools.register and never bound
+    to a module-level name, so this is how a caller reaches them — which is
+    also what makes this harness exercise the same path a client would.
+    """
+    return server.mcp._tool_manager.get_tool(name).fn
+
+
+async def probe_ckan(portal: ckan.CkanPortal, pkg: dict) -> Probe:
+    """Walk one city dataset: metadata, then rows from a queryable resource."""
+    pre = portal.prefix
     p = Probe(
-        portal="datosabiertos.bogota.gov.co",
+        portal=portal.host,
+        prefix=pre,
+        city=portal.city,
         dataset_id=pkg.get("name") or pkg.get("id", ""),
         title=(pkg.get("title") or "")[:90],
     )
 
-    meta = await timed(p, "bogota_get_dataset", server.bogota_get_dataset(id=p.dataset_id))
+    meta = await timed(p, f"{pre}_get_dataset", _tool(f"{pre}_get_dataset")(id=p.dataset_id))
     if not isinstance(meta, dict) or "error" in meta:
         return p
 
@@ -214,13 +230,13 @@ async def probe_bogota(pkg: dict) -> Probe:
     if target is None:
         # Not a failure of the server — the portal never pushed this one into
         # the DataStore. Recorded distinctly so it does not pollute error rates.
-        p.steps["bogota_resource_preview"] = "no-datastore"
+        p.steps[f"{pre}_resource_preview"] = "no-datastore"
         return p
 
     prev = await timed(
         p,
-        "bogota_resource_preview",
-        server.bogota_resource_preview(resource_id=target["id"], rows=2),
+        f"{pre}_resource_preview",
+        _tool(f"{pre}_resource_preview")(resource_id=target["id"], rows=2),
     )
     if isinstance(prev, dict) and "error" not in prev:
         p.row_sample_ok = bool(prev.get("rows"))
@@ -231,8 +247,8 @@ async def probe_bogota(pkg: dict) -> Probe:
         if fields:
             await timed(
                 p,
-                "bogota_filter_resource",
-                server.bogota_filter_resource(
+                f"{pre}_filter_resource",
+                _tool(f"{pre}_filter_resource")(
                     resource_id=target["id"], columns=fields[:2], limit=2
                 ),
             )
@@ -250,12 +266,12 @@ async def catalogue_size_national() -> int:
         return FALLBACK_NATIONAL
 
 
-async def catalogue_size_bogota() -> int:
+async def catalogue_size_ckan(key: str) -> int:
     try:
-        body = await server._bogota.package_search(rows=1)
-        return int(body.get("count") or FALLBACK_BOGOTA)
+        body = await server._ckan_clients[key].package_search(rows=1)
+        return int(body.get("count") or FALLBACK_CKAN[key])
     except Exception:
-        return FALLBACK_BOGOTA
+        return FALLBACK_CKAN[key]
 
 
 async def sample_national(n: int, rng: random.Random) -> list[dict]:
@@ -282,15 +298,15 @@ async def sample_national(n: int, rng: random.Random) -> list[dict]:
     return out[:n]
 
 
-async def sample_bogota(n: int, rng: random.Random) -> list[dict]:
-    size = await catalogue_size_bogota()
+async def sample_ckan(key: str, n: int, rng: random.Random) -> list[dict]:
+    size = await catalogue_size_ckan(key)
     page = 25
     pages = max(1, size // page)
     offsets = rng.sample(range(pages), k=min(pages, (n // page) + 2))
     out: list[dict] = []
     for off in offsets:
         try:
-            body = await server._bogota.package_search(rows=page, start=off * page)
+            body = await server._ckan_clients[key].package_search(rows=page, start=off * page)
         except ckan.CkanError:
             continue
         out.extend(body.get("results") or [])
@@ -346,12 +362,23 @@ def step_table(probes: list[Probe], steps: list[str]) -> str:
     return "\n".join(lines)
 
 
-def build_report(nat: list[Probe], bog: list[Probe], meta: dict) -> str:
-    all_probes = nat + bog
+NATIONAL_STEPS = [
+    "get_dataset",
+    "download_dataset_preview",
+    "aggregate_dataset",
+    "filter_dataset",
+]
+CITY_STEPS = ["get_dataset", "resource_preview", "filter_resource"]
+
+NATIONAL_HOST = "datos.gov.co"
+
+
+def build_report(by_portal: dict[str, list[Probe]], meta: dict) -> str:
+    all_probes = [p for probes in by_portal.values() for p in probes]
     L: list[str] = []
     A = L.append
 
-    A("# Informe de prueba de fuerza — dos portales colombianos")
+    A("# Informe de prueba de fuerza — portales colombianos")
     A("")
     A(f"**Ejecutado:** {meta['started']}  ")
     A(f"**Duración:** {meta['elapsed_s']:.0f} s  ")
@@ -360,91 +387,102 @@ def build_report(nat: list[Probe], bog: list[Probe], meta: dict) -> str:
     A(f"**Versión del servidor:** {meta['version']}")
     A("")
     A(
-        f"Se sometieron **{len(all_probes)} conjuntos de datos** elegidos al azar "
-        f"({len(nat)} de `datos.gov.co`, {len(bog)} de Bogotá) a las herramientas "
-        "reales del MCP — no a los clientes HTTP internos, sino a las mismas "
-        "funciones que invoca un modelo. Todo lo que sigue es lo que un asistente "
-        "recibiría de verdad."
+        f"Se sometieron **{len(all_probes)} conjuntos de datos** elegidos al azar en "
+        f"{len(by_portal)} portales a las herramientas reales del MCP — no a los "
+        "clientes HTTP internos, sino a las mismas funciones que invoca un modelo. "
+        "Todo lo que sigue es lo que un asistente recibiría de verdad."
     )
     A("")
     A(
         "La muestra se toma en desplazamientos aleatorios a lo largo de todo el "
         "catálogo, no de los primeros N resultados. La distinción no es cosmética: "
         "los primeros 100 datasets de Bogotá son casi todos geoespaciales, y "
-        "medir ahí daba una cobertura de DataStore del 9% en vez del 43% real."
+        "medir ahí daba una cobertura de DataStore del 9% en vez del ~27% real."
     )
     A("")
 
     # ── Headline
-    nat_ok = sum(1 for p in nat if p.row_sample_ok)
-    bog_ok = sum(1 for p in bog if p.row_sample_ok)
     A("## Resumen")
     A("")
-    A("| Portal | Muestra | Devolvió filas reales | Tasa |")
-    A("|---|---|---|---|")
-    if nat:
-        A(f"| `datos.gov.co` (Socrata) | {len(nat)} | {nat_ok} | **{pct(nat_ok, len(nat))}** |")
-    if bog:
-        A(f"| Bogotá (CKAN) | {len(bog)} | {bog_ok} | **{pct(bog_ok, len(bog))}** |")
+    A("| Portal | Plataforma | Muestra | Devolvió filas reales | Tasa |")
+    A("|---|---|---|---|---|")
+    for host in sorted(by_portal, key=lambda h: (h != NATIONAL_HOST, h)):
+        probes = by_portal[host]
+        ok = sum(1 for p in probes if p.row_sample_ok)
+        platform = "Socrata" if host == NATIONAL_HOST else "CKAN"
+        A(f"| `{host}` | {platform} | {len(probes)} | {ok} | **{pct(ok, len(probes))}** |")
     A("")
     A(
         "«Devolvió filas reales» es la prueba dura: el MCP entregó datos que el "
-        "modelo puede leer, no solo metadatos."
+        "modelo puede leer, no solo metadatos. En los portales CKAN esta cifra "
+        "está limitada por el portal, no por el servidor — ver la cobertura de "
+        "DataStore más abajo."
     )
     A("")
 
-    # ── Per-tool
-    if nat:
-        A("## Portal nacional — `datos.gov.co`")
-        A("")
-        A(
-            step_table(
-                nat,
-                ["get_dataset", "download_dataset_preview", "aggregate_dataset", "filter_dataset"],
-            )
-        )
-        A("")
-        sizes = [p.rows_available for p in nat if p.rows_available is not None]
-        if sizes:
-            sizes.sort()
-            A(
-                f"Tamaño de los datasets consultados: mediana **{statistics.median(sizes):,.0f} filas**, "
-                f"máximo **{sizes[-1]:,} filas**. Ninguna de esas filas viajó por la red: "
-                "`count(*)` lo resolvió Socrata en su servidor."
-            )
-            A("")
+    for host in sorted(by_portal, key=lambda h: (h != NATIONAL_HOST, h)):
+        probes = by_portal[host]
+        is_national = host == NATIONAL_HOST
+        prefix = "" if is_national else probes[0].prefix
+        steps = NATIONAL_STEPS if is_national else [f"{prefix}_{suffix}" for suffix in CITY_STEPS]
+        title = "Portal nacional" if is_national else probes[0].city or host
 
-    if bog:
-        A("## Bogotá — `datosabiertos.bogota.gov.co`")
+        A(f"## {title} — `{host}`")
         A("")
-        A(
-            step_table(
-                bog, ["bogota_get_dataset", "bogota_resource_preview", "bogota_filter_resource"]
-            )
-        )
+        A(step_table(probes, steps))
         A("")
 
-        with_ds = sum(1 for p in bog if p.n_queryable > 0)
-        res_total = sum(p.n_resources for p in bog)
-        res_query = sum(p.n_queryable for p in bog)
+        if is_national:
+            sizes = [p.rows_available for p in probes if p.rows_available is not None]
+            if sizes:
+                sizes.sort()
+                A(
+                    f"Tamaño de los datasets consultados: mediana "
+                    f"**{statistics.median(sizes):,.0f} filas**, máximo "
+                    f"**{sizes[-1]:,} filas**. Ninguna de esas filas viajó por la "
+                    "red: `count(*)` lo resolvió Socrata en su servidor."
+                )
+                A("")
+            continue
+
+        with_ds = sum(1 for p in probes if p.n_queryable > 0)
+        res_total = sum(p.n_resources for p in probes)
+        res_query = sum(p.n_queryable for p in probes)
         A("### Cobertura de DataStore")
-        A("")
-        A(
-            "Qué porción del catálogo fue efectivamente volcada a la base de datos "
-            "de CKAN, y por lo tanto se puede leer fila por fila:"
-        )
         A("")
         A("| Medida | Valor |")
         A("|---|---|")
         A(
-            f"| Datasets con al menos un recurso consultable | {with_ds} / {len(bog)} — **{pct(with_ds, len(bog))}** |"
+            f"| Datasets con al menos un recurso marcado consultable | "
+            f"{with_ds} / {len(probes)} — **{pct(with_ds, len(probes))}** |"
         )
         A(
-            f"| Recursos individuales consultables | {res_query} / {res_total} — **{pct(res_query, res_total)}** |"
+            f"| Recursos individuales marcados consultables | "
+            f"{res_query} / {res_total} — **{pct(res_query, res_total)}** |"
         )
+        lying = sum(1 for p in probes if p.steps.get(f"{prefix}_resource_preview") == "http-404")
+        tried = sum(
+            1
+            for p in probes
+            if p.steps.get(f"{prefix}_resource_preview") not in (None, "no-datastore")
+        )
+        if tried:
+            A(
+                f"| Marcados consultables que **no** tienen tabla (404) | "
+                f"{lying} / {tried} — **{pct(lying, tried)}** |"
+            )
         A("")
+        if lying:
+            A(
+                "La última fila es el catálogo del portal equivocándose sobre sí "
+                "mismo. `datastore_active` dice que el recurso es consultable y no "
+                "lo es. El servidor reescribe ese 404 para decirlo explícitamente, "
+                "en vez de reenviar un error crudo que el modelo leería como culpa "
+                "suya."
+            )
+            A("")
 
-        fmt = Counter(f for p in bog for f in p.formats)
+        fmt = Counter(f for p in probes for f in p.formats)
         if fmt:
             tab = sum(v for k, v in fmt.items() if k in TABULAR)
             svc = sum(v for k, v in fmt.items() if k in SERVICE)
@@ -453,7 +491,7 @@ def build_report(nat: list[Probe], bog: list[Probe], meta: dict) -> str:
             A("")
             A("| Formato | Recursos | Naturaleza |")
             A("|---|---|---|")
-            for k, v in fmt.most_common(14):
+            for k, v in fmt.most_common(12):
                 nature = (
                     "tabular — lo leería un parser CSV/XLSX"
                     if k in TABULAR
@@ -464,15 +502,10 @@ def build_report(nat: list[Probe], bog: list[Probe], meta: dict) -> str:
                 A(f"| {k} | {v} | {nature} |")
             A("")
             A(
-                f"De {sum(fmt.values())} recursos: {tab} tabulares, **{svc} son servicios "
-                f"consultables** (ESRI REST / WFS / WMS — tienen `?query=`, no hay que "
-                f"descargarlos), y {other} son archivos geoespaciales o estáticos."
-            )
-            A("")
-            A(
-                "Ese número de servicios es la vía de ampliación con mejor relación "
-                "esfuerzo/beneficio: son APIs, y consultarlas no reintroduce ni "
-                "descarga de archivos ni superficie de SSRF."
+                f"De {sum(fmt.values())} recursos: {tab} tabulares, **{svc} son "
+                f"servicios consultables** (ESRI REST / WFS / WMS — tienen "
+                f"`?query=`, no hay que descargarlos), y {other} son archivos "
+                "geoespaciales o estáticos."
             )
             A("")
 
@@ -489,7 +522,7 @@ def build_report(nat: list[Probe], bog: list[Probe], meta: dict) -> str:
     else:
         A("| Herramienta → clase | Veces |")
         A("|---|---|")
-        for k, v in errs.most_common(20):
+        for k, v in errs.most_common(25):
             A(f"| `{k}` | {v} |")
         A("")
         A("Ejemplos textuales (uno por clase):")
@@ -505,20 +538,21 @@ def build_report(nat: list[Probe], bog: list[Probe], meta: dict) -> str:
     A("")
 
     raised = [(p, s) for p in all_probes for s, v in p.steps.items() if v == "RAISED"]
+    calls = sum(len(p.steps) for p in all_probes)
     A("## Garantía de que ninguna herramienta lanza excepción")
     A("")
     if raised:
         A(
-            f"**{len(raised)} llamadas lanzaron una excepción en vez de devolver un sobre de error.** Esto es un defecto:"
+            f"**{len(raised)} de {calls} llamadas lanzaron una excepción en vez de "
+            "devolver un sobre de error. Esto es un defecto:**"
         )
         for p, s in raised[:10]:
             A(f"- `{s}` sobre `{p.dataset_id}`: {p.errors.get(s, '')[:200]}")
     else:
         A(
-            f"Ninguna de las {sum(len(p.steps) for p in all_probes)} llamadas lanzó "
-            'excepción. Cada fallo llegó como `{"error": …, "hint": …}`, que es '
-            "lo que permite al modelo reaccionar en vez de quedarse con un error "
-            "opaco de protocolo."
+            f"**0 de {calls} llamadas lanzaron excepción.** Cada fallo llegó como "
+            '`{"error": …, "hint": …}`, que es lo que permite al modelo reaccionar '
+            "en vez de quedarse con un error opaco de protocolo."
         )
     A("")
 
@@ -531,7 +565,8 @@ def build_report(nat: list[Probe], bog: list[Probe], meta: dict) -> str:
     A("")
     A(f"Datos crudos: `sweep/out/{meta['stem']}.jsonl` (una línea por dataset).")
     A(
-        f"Generado por `sweep/stress_test.py`. Reproducir: `uv run python sweep/stress_test.py --seed {meta['seed']} --total {meta['total']}`."
+        "Generado por `sweep/stress_test.py`. Reproducir: "
+        f"`uv run python sweep/stress_test.py --seed {meta['seed']} --total {meta['total']}`."
     )
     return "\n".join(L)
 
@@ -544,42 +579,53 @@ async def run(args) -> int:
     started = datetime.now(timezone.utc)
     t0 = time.perf_counter()
 
-    want_nat = 0 if args.only == "bogota" else args.total // (1 if args.only == "national" else 2)
-    want_bog = 0 if args.only == "national" else args.total - want_nat
+    ckan_keys = list(ckan.PORTALS)
+    targets = ["national", *ckan_keys]
+    if args.only:
+        targets = [args.only]
+    per = max(1, args.total // len(targets))
 
-    print(f"Muestreando {want_nat} de datos.gov.co y {want_bog} de Bogotá (semilla {args.seed})…")
-    nat_items = await sample_national(want_nat, rng) if want_nat else []
-    bog_items = await sample_bogota(want_bog, rng) if want_bog else []
-    print(f"Muestra obtenida: {len(nat_items)} + {len(bog_items)}. Ejecutando herramientas…")
+    print(f"Muestreando {per} de cada uno de {', '.join(targets)} (semilla {args.seed})…")
+
+    items: list[tuple[str, dict]] = []
+    if "national" in targets:
+        items += [("national", i) for i in await sample_national(per, rng)]
+    for key in ckan_keys:
+        if key in targets:
+            items += [(key, i) for i in await sample_ckan(key, per, rng)]
+
+    print(f"Muestra obtenida: {len(items)}. Ejecutando herramientas…")
 
     sem = asyncio.Semaphore(args.concurrency)
     done = 0
-    total = len(nat_items) + len(bog_items)
+    total = len(items)
 
-    async def guarded(fn, item):
+    async def guarded(kind: str, item: dict) -> Probe:
         nonlocal done
         async with sem:
-            p = await fn(item)
+            if kind == "national":
+                probe = await probe_national(item)
+            else:
+                probe = await probe_ckan(ckan.PORTALS[kind], item)
             await asyncio.sleep(args.delay)
             done += 1
             if done % 25 == 0 or done == total:
                 print(f"  {done}/{total}…", flush=True)
-            return p
+            return probe
 
-    probes = await asyncio.gather(
-        *[guarded(probe_national, i) for i in nat_items],
-        *[guarded(probe_bogota, i) for i in bog_items],
-    )
-    nat = [p for p in probes if p.portal == "datos.gov.co"]
-    bog = [p for p in probes if p.portal != "datos.gov.co"]
+    probes = await asyncio.gather(*[guarded(k, i) for k, i in items])
+
+    by_portal: dict[str, list[Probe]] = {}
+    for probe in probes:
+        by_portal.setdefault(probe.portal, []).append(probe)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     stem = f"stress_{started:%Y-%m-%d_%H%M}"
     raw = OUT_DIR / f"{stem}.jsonl"
     with raw.open("w", encoding="utf-8") as fh:
-        for p in probes:
-            fh.write(json.dumps(asdict(p), ensure_ascii=False) + "\n")
+        for probe in probes:
+            fh.write(json.dumps(asdict(probe), ensure_ascii=False) + "\n")
 
     from colombian_open_data_mcp import __version__
 
@@ -593,7 +639,7 @@ async def run(args) -> int:
         "stem": stem,
     }
     report = REPORT_DIR / f"PRUEBA_FUERZA_{started:%Y-%m-%d}.md"
-    report.write_text(build_report(nat, bog, meta), encoding="utf-8")
+    report.write_text(build_report(by_portal, meta), encoding="utf-8")
 
     await server._close_clients()
     print(f"\nCrudo:   {raw}")
@@ -603,13 +649,13 @@ async def run(args) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--total", type=int, default=300, help="datasets to probe (default 300)")
+    ap.add_argument("--total", type=int, default=450, help="datasets to probe (default 450)")
     ap.add_argument("--seed", type=int, default=None, help="random seed (default: time-based)")
     ap.add_argument(
         "--concurrency", type=int, default=4, help="parallel probes (default 4; be kind)"
     )
     ap.add_argument("--delay", type=float, default=0.2, help="seconds between probes per worker")
-    ap.add_argument("--only", choices=["national", "bogota"], default=None)
+    ap.add_argument("--only", choices=["national", *ckan.PORTALS], default=None)
     args = ap.parse_args()
     if args.seed is None:
         args.seed = int(time.time())

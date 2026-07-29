@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.2.x   | ✅        |
-| < 0.2   | ❌        |
+| 0.3.x   | ✅        |
+| < 0.3   | ❌        |
 
 Always run the latest release. Security fixes land on the newest minor only.
 
@@ -74,12 +74,34 @@ handling in the codebase:
 
 ### CKAN: structured filters, never interpolated SQL
 
-Bogotá's DataStore does **not** expose `datastore_search_sql`, so no SQL string
-is ever constructed for that portal. Filters are sent as a JSON object that
-CKAN matches itself. Column names in `fields`, `filters` and `sort` are still
-allowlist-checked and denylist-checked (`ckan.is_valid_column`), and sort
-directions are restricted to `asc`/`desc` — defence in depth for a surface that
-should already be closed.
+Neither city portal exposes `datastore_search_sql`, so **no SQL string is ever
+constructed for them**. Filters are sent as a JSON object that CKAN matches
+itself, and column names go into query-string parameters that httpx
+percent-encodes before CKAN quotes them against its own schema.
+
+That fact decides the rule for column names, and the rule is deliberately
+different from the SoQL one. It began as a character allowlist and was wrong
+twice — it refused `MES:` and then `Fecha & Hora`, both real columns on these
+portals. Surveying 1,308 live column names showed why an allowlist cannot work
+here: a government catalogue publishes headers with `? $ & % ° # : ( ) / . -`,
+with accents, and with mojibake from its own encoding bugs (`Correo
+electr¢nico`). Enumerating that set is a losing game, and each miss costs a user
+a column they needed.
+
+So the CKAN rule is a **denylist**, and a short one — statement and comment
+sequences (`;`, `--`, `/*`, `*/`), control characters including newlines, and a
+120-character cap. Everything else printable is allowed, because on this path
+there is nothing for it to break: a quote-and-OR string reaches CKAN as a field
+name that does not exist and comes back as "no such field".
+
+The same string **is** refused by `soql.quote_ident()`, because on the Socrata
+path it would be composed into a query language the portal executes. A test
+asserts both behaviours together, so that a future reader does not "fix" one
+rule to match the other. Sort directions are additionally restricted to
+`asc`/`desc`.
+
+Refusing a column costs projection, never access: omitting `columns` returns
+every field, including names the rule will not express.
 
 ### No SSRF surface
 
@@ -89,9 +111,9 @@ whole SSRF guard module and this one does not.
 That server downloads CKAN resource files, which live on arbitrary ministry
 hosts, so it must resolve every hostname and refuse link-local, loopback and
 RFC-1918 addresses. This server never downloads a resource file. Every outbound
-request goes to one of three fixed hosts baked into the source:
-`api.us.socrata.com`, `www.datos.gov.co`, `datosabiertos.bogota.gov.co`. No
-tool takes a URL.
+request goes to one of four fixed hosts baked into the source:
+`api.us.socrata.com`, `www.datos.gov.co`, `datosabiertos.bogota.gov.co` and
+`datos.cali.gov.co`. No tool takes a URL.
 
 ### Output bounds
 
@@ -104,7 +126,8 @@ tool call cannot be used to exhaust the model's context.
 The only secret this server understands is the optional `SOCRATA_APP_TOKEN`,
 which raises Socrata's anonymous rate limit. It is read once at client
 construction, sent only as an `X-App-Token` header to `datos.gov.co` and the
-Socrata catalog, and never logged. The server works without it.
+Socrata catalog — never to either city portal, which have no equivalent — and
+never logged. The server works without it.
 
 ## What this server does not protect against
 

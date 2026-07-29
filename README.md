@@ -6,11 +6,10 @@
 
 # colombian-open-data-mcp
 
-**MCP server for Colombia's open government data — the national portal
-[datos.gov.co](https://www.datos.gov.co) (Socrata, 8,391 datasets) and
-Bogotá's city portal
-[datosabiertos.bogota.gov.co](https://datosabiertos.bogota.gov.co)
-(CKAN, ~1,900 datasets).**
+**MCP server for Colombia's open government data — three portals, two
+platforms: the national [datos.gov.co](https://www.datos.gov.co) (Socrata,
+8,391 datasets), [Bogotá](https://datosabiertos.bogota.gov.co) (CKAN, ~1,900)
+and [Cali](https://datos.cali.gov.co) (CKAN, 657).**
 
 The first MCP server for Colombian open data that installs and runs **on your
 own machine** — no gateway, no intermediary, no account. It connects any
@@ -18,7 +17,7 @@ MCP-compatible assistant (Claude Desktop, Claude Code, Cursor, VS Code Copilot,
 Gemini CLI) straight to the catalogues and the live data, with filtering and
 aggregation executed by the portals themselves rather than by the model.
 
-**20 tools · 221 hermetic tests · MIT**
+**28 tools · 281 hermetic tests · 18 live tests · MIT**
 
 ---
 
@@ -29,19 +28,19 @@ America — Argentina, Chile, Mexico, Uruguay and the Dominican Republic all run
 CKAN. Socrata ships a real query language, **SoQL**, so `WHERE`, `GROUP BY`,
 `count()` and `sum()` all run on the server and only the rolled-up rows travel.
 
-Bogotá's city portal runs **CKAN 2.10.4**. Its DataStore supports typed
-filtering, but it does **not** expose `datastore_search_sql` — verified against
-the live API, where the action is unregistered and a WAF separately blocks the
-GET form of that path.
+The two city portals run **CKAN 2.10.4**. Their DataStore supports typed
+filtering, but neither exposes `datastore_search_sql` — verified against both
+live APIs, where Bogotá answers 400 (the action is unregistered, and a WAF
+separately blocks the GET form) and Cali answers 403.
 
 That difference is real, so this server exposes it rather than papering over
-it. There is an `aggregate_dataset` for the national portal and **no Bogotá
-equivalent**, because offering one would advertise something the portal cannot
-do. A live test asserts the absence; if Bogotá ever enables SQL, the build says
-so.
+it. There is an `aggregate_dataset` for the national portal and **no city
+equivalent**, because offering one would advertise something those portals
+cannot do. A live test asserts the absence for each; if either ever enables
+SQL, the build says so.
 
-For the same reason the two families are separate tools rather than one tool
-with a `portal` switch: Socrata identifiers are 4x4 codes (`abcd-1234`), CKAN
+For the same reason the families are separate tools rather than one tool with a
+`portal` switch: Socrata identifiers are 4x4 codes (`abcd-1234`), CKAN
 identifiers are UUIDs or slugs, and a shared parameter would have to branch its
 validation — and identifier validation is the defence against URL injection.
 
@@ -51,58 +50,65 @@ validation — and identifier validation is the defence against URL injection.
 
 | Tool | What it does |
 |---|---|
-| `search_datasets` | Catalogue search by keyword, category, tag. |
+| `search_datasets` | Catalogue search by keyword, category, tag and asset type. |
 | `get_dataset` | Full metadata: columns, types, owner, licence, URL. |
 | `list_recent_datasets` | Most recently updated datasets. |
 | `list_categories` | Top-level portal categories. |
 | `list_tags` | All tags on the portal. |
 | `list_owners` | Publishing entities with dataset counts. |
 | `autocomplete` | Resolve a partial name to a real dataset / tag / category / owner. |
-| `get_site_stats` | Portal totals. |
+| `get_site_stats` | Portal totals and which asset types are queryable. |
 | `download_dataset_preview` | First N rows, straight from Socrata. |
 | `filter_dataset` | Typed WHERE / SELECT / ORDER BY. |
 | `aggregate_dataset` | Typed GROUP BY + count / sum / avg / median / min / max / stddev. |
 | `query_dataset_soql` | Power-user escape hatch: raw SoQL, read-only, validated. |
 
-### Bogotá — `datosabiertos.bogota.gov.co` (8)
+### City portals — Bogotá and Cali (8 each)
 
-| Tool | What it does |
+| Tool (per city) | What it does |
 |---|---|
-| `bogota_search_datasets` | Catalogue search, filterable by organization, group or tag. |
-| `bogota_get_dataset` | Full metadata and every resource, each flagged `queryable`. |
-| `bogota_list_organizations` | City entities that publish, with dataset counts. |
-| `bogota_list_groups` | Thematic groups. |
-| `bogota_list_tags` | Portal tags (~3,200). |
-| `bogota_get_site_stats` | Portal totals, and what the DataStore can and cannot do. |
-| `bogota_resource_preview` | First N rows of a DataStore-backed resource, with column types. |
-| `bogota_filter_resource` | Typed server-side filter, projection and sort. |
+| `<city>_search_datasets` | Catalogue search, filterable by organization, group or tag. |
+| `<city>_get_dataset` | Full metadata and every resource, each flagged `queryable`. |
+| `<city>_list_organizations` | City entities that publish, with dataset counts. |
+| `<city>_list_groups` | Thematic groups. |
+| `<city>_list_tags` | Portal tags. |
+| `<city>_get_site_stats` | Portal totals, and what the DataStore can and cannot do. |
+| `<city>_resource_preview` | First N rows of a DataStore-backed resource, with column types. |
+| `<city>_filter_resource` | Typed server-side filter, projection and sort. |
 
-## What Bogotá can and cannot answer
+`<city>` is `bogota` or `cali`. Both portals run CKAN 2.10.4 and the eight
+tools are generated from one definition, so their shapes are identical — a test
+asserts that. Neither has an aggregation tool, because neither portal exposes
+`datastore_search_sql`.
 
-Worth knowing before you ask it something it cannot do. These figures come from
-running the actual tools against 300 randomly sampled datasets
-(`sweep/stress_test.py`, seeds 2026 and 777):
+## What each portal can and cannot answer
 
-| | datos.gov.co | Bogotá |
-|---|---|---|
-| Datasets that returned real rows | **100%** (300/300) | **13%** (39/300) |
-| Datasets flagged as queryable | 100% | 27% |
+These figures come from running the actual tools against randomly sampled
+datasets (`sweep/stress_test.py`), not from reading documentation:
 
-The gap between 27% flagged and 13% delivered is **the portal's own metadata
-being wrong**: of 80 resources the catalogue marked `datastore_active`, 27
-answered HTTP 404 because no table exists for them. The server rewrites that
-404 into an explanation rather than passing the raw CKAN error along, so a
-model is told the catalogue was wrong instead of assuming it made a mistake.
+| | datos.gov.co | Bogotá | Cali |
+|---|---|---|---|
+| Platform | Socrata | CKAN 2.10.4 | CKAN 2.10.4 |
+| Filter server-side | yes | yes | yes |
+| **Aggregate server-side** | **yes** | no | no |
+| Datasets that returned real rows | ~100% | ~13% | see report |
 
-The rest of Bogotá's catalogue is mostly geospatial — SHP, GPKG, GEOJSON, DXF,
-KML, the IDECA layers — published as files rather than through the DataStore.
-Those datasets stay fully discoverable: you get the metadata, the resource list
-and the download URLs. `bogota_get_dataset` marks every resource
-`queryable: true/false`, but treat that as a hint, not a promise.
+For the CKAN portals that last row is a property of the portal, not of this
+server. Two things cause it. Most of each catalogue is published as files
+rather than through the DataStore — heavily geospatial in Bogotá's case (SHP,
+GPKG, GEOJSON, DXF, KML, the IDECA layers). And the catalogue's own
+`datastore_active` flag is unreliable: of 80 resources measured that carried
+it, 27 answered HTTP 404 because no table exists. The server rewrites that 404
+into an explanation naming the portal's metadata as the cause, so a model is
+told the catalogue was wrong instead of assuming it made a mistake.
+
+`<city>_get_dataset` marks every resource `queryable: true/false`. Treat it as a
+hint, not a promise.
 
 About 9% of Bogotá's resources are queryable **services** rather than files —
-ESRI REST, WFS, WMS endpoints that accept `?query=`. Reading those needs no
-download at all, and it is the highest-value coverage work still open.
+ESRI REST, WFS and WMS endpoints that accept `?query=`, support pagination and,
+in the ESRI case, statistics. Reading those needs no download at all, and it is
+the highest-value coverage work still open.
 
 This server deliberately does **not** download resource files. Doing so would
 mean roughly 750 more lines plus an SSRF guard, and the CSV/XLSX parsers it
@@ -142,6 +148,8 @@ Ask your assistant, in Spanish or English:
 > ¿Qué datasets de movilidad publica Bogotá, y cuáles se pueden consultar fila
 > por fila?
 
+> Compara qué entidades publican más datos abiertos en Bogotá y en Cali.
+
 > Filtra el recurso de casos de Bogotá por localidad Bosa y muéstrame las
 > primeras 20 filas.
 
@@ -158,7 +166,14 @@ result of a better substrate, not a thinner product.
 **Every tool returns, none raises.** A portal outage arrives as
 `{"error": ..., "hint": ...}` — an exception escaping a tool would reach the
 model as an opaque protocol error it cannot act on. A parameterised test
-asserts this for all 20.
+asserts this for all 28, and the stress harness confirms it against the live
+catalogues: zero raised exceptions across thousands of real calls.
+
+**Transient failures are retried; definitive ones are not.** A dropped
+connection gets three attempts with real backoff. A `ReadTimeout` gets one,
+because the server accepted the request and is still working — retrying a
+20-second query three times just makes the caller wait a minute for the same
+answer.
 
 **Every input is validated before a URL is built.** Socrata 4x4 codes against
 an exact regex; CKAN identifiers as UUID or slug; every SoQL identifier through
@@ -170,10 +185,11 @@ multi-statement queries. See **[SECURITY.md](SECURITY.md)**.
 
 ```bash
 uv sync --group dev --extra dev
-uv run pytest                                  # 221 hermetic tests, 85% coverage floor
+uv run pytest                                  # 281 hermetic tests, 85% coverage floor
 uv run ruff check src/ tests/
 uv run mypy src/colombian_open_data_mcp/
-RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 11 live tests, opt-in
+RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 18 live tests, opt-in
+uv run python sweep/stress_test.py             # 450 random datasets, all three portals
 ```
 
 Live tests never run in CI. Both portals are third-party infrastructure and
