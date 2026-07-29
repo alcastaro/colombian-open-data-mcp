@@ -35,3 +35,9 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Dev harness and the data it produces. Kept out of the package and out of the
+# public repo: it hammers third-party portals and its outputs are large.
+sweep/*.jsonl
+sweep/*.log
+sweep/out/

@@ -142,6 +142,12 @@ bug in this server and retrying often works. National-portal tools are
 unaffected.
 
 **A Bogotá dataset has no queryable resource.**
-About 57% of that catalogue is published as files rather than through the
-DataStore, much of it geospatial. `bogota_get_dataset` marks each resource with
-`queryable: true/false`; when it is false the download URL is all there is.
+Most of that catalogue is published as files rather than through the DataStore,
+much of it geospatial: measured over 300 random datasets, about 13% return rows.
+`bogota_get_dataset` marks each resource `queryable: true/false`; when it is
+false the download URL is all there is.
+
+**And sometimes `queryable: true` is wrong.** The portal's catalogue flags
+resources as DataStore-backed that have no table behind them — about a third of
+the flagged ones. You will get an error saying exactly that. It is Bogotá's
+metadata, not your request.

@@ -268,11 +268,25 @@ class SocrataClient:
         return result
 
     async def site_stats(self) -> dict[str, Any]:
-        """Top-level portal stats: total datasets + result-set size."""
-        # Catalog API caps resultSetSize at 10,000 but the actual size shows there.
+        """Top-level portal stats.
+
+        This used to query the catalogue with no ``only`` filter and report the
+        answer as "total datasets". Two things were wrong with that. The count
+        spans every asset type, not datasets; and it saturates — an unfiltered
+        query returns exactly 10,000 while the per-type counts sum to 12,251, so
+        10,000 is a ceiling, not a total.
+
+        Counting ``only=dataset`` gives the real figure and matches what
+        ``search_datasets`` can actually reach.
+        """
         cat = await self._get_json(
             CATALOG_API_BASE,
-            {"domains": PORTAL_HOST, "search_context": PORTAL_HOST, "limit": 0},
+            {
+                "domains": PORTAL_HOST,
+                "search_context": PORTAL_HOST,
+                "only": "dataset",
+                "limit": 0,
+            },
         )
         cats = await self.domain_categories()
         tags = await self.domain_tags()

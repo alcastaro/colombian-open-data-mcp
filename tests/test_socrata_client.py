@@ -240,15 +240,33 @@ async def test_autocomplete_rejects_unknown_kind(client):
 # ─── Site stats ──────────────────────────────────────────────────────────────
 
 
+async def test_site_stats_counts_only_datasets(client, httpx_mock):
+    """Regression: it used to count every asset type and saturate at 10,000.
+
+    An unfiltered catalogue query against this domain returns exactly 10,000
+    while the per-type counts sum to 12,251 — so 10,000 was a ceiling reported
+    as a total. The real dataset count is 8,391, which is also the only figure
+    `search_datasets` can actually reach.
+    """
+    httpx_mock.add_response(url=ANY_CATALOG, json={"resultSetSize": 8391})
+    httpx_mock.add_response(
+        url=ANY_DOMAIN, json={"results": [{"domain_category": "Salud"}]}, is_reusable=True
+    )
+    stats = await client.site_stats()
+    assert stats["total_datasets"] == 8391
+    only = httpx_mock.get_requests()[0].url.params.get("only")
+    assert only == "dataset", "site_stats must scope to datasets, not all assets"
+
+
 async def test_site_stats_composes_three_calls(client, httpx_mock):
-    httpx_mock.add_response(url=ANY_CATALOG, json={"resultSetSize": 10000})
+    httpx_mock.add_response(url=ANY_CATALOG, json={"resultSetSize": 8391})
     httpx_mock.add_response(
         url=ANY_DOMAIN, json={"results": [{"domain_category": "Salud"}]}, is_reusable=True
     )
     stats = await client.site_stats()
     assert stats["country"] == "CO"
     assert stats["platform"] == "socrata"
-    assert stats["total_datasets"] == 10000
+    assert stats["total_datasets"] == 8391
 
 
 # ─── Connection lifecycle ────────────────────────────────────────────────────

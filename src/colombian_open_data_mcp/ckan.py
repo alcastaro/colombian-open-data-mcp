@@ -19,10 +19,21 @@ be added later without touching this module.
   portal, and no aggregation tool is offered for it. Promising one would be
   promising something the portal cannot do.
 
-Coverage: of 300 datasets sampled across six points of the catalog, 128 (43%)
-had at least one DataStore-backed resource. The remainder is mostly geospatial
-(SHP, GPKG, GEOJSON, DXF, KML, WMS/WFS) — Bogotá's IDECA layers. Those are
-discoverable through the catalog tools but not queryable row-by-row here.
+Coverage, measured end to end over 300 randomly sampled datasets (two runs of
+150, seeds 2026 and 777, see ``sweep/stress_test.py``):
+
+* ~27% of datasets carry a resource the catalogue *flags* as DataStore-backed.
+* **~13% actually return rows.** The gap is the portal's own metadata being
+  wrong: of 80 resources flagged ``datastore_active``, 27 answered HTTP 404
+  because no table exists for them.
+
+An earlier estimate of 43% came from systematic rather than random offsets and
+counted the flag rather than the outcome. Trust the flag for a hint, never for
+a promise — which is why a 404 here is rewritten into an explanation.
+
+The rest of the catalogue is mostly geospatial (SHP, GPKG, GEOJSON, DXF, KML)
+plus a meaningful slice of queryable *services* (ESRI REST, WFS, WMS — about 9%
+of resources), which are APIs rather than files and remain unexploited.
 """
 
 from __future__ import annotations
@@ -94,7 +105,20 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{1,99}$")
 # DataStore column names. CKAN quotes these itself, but the allowlist is cheap
 # and keeps one habit across both clients rather than two different rules a
 # reader has to hold in their head.
-_COLUMN = re.compile(r"^[\w .\-À-ſ()/%°#]{1,120}$")
+# Built from evidence, not guesswork: 294 real column names were collected from
+# DataStore resources across the catalogue and the character set below is what
+# they actually use. Colons appear in legitimate names ("MES:", "Nombre:") and
+# were being rejected, which is how a valid projection turned into an error.
+#
+# Deliberately still excluded, and the cost of each is bounded:
+#   ";"  appears only in names that are a whole malformed CSV row misparsed as
+#        one header (e.g. "111006;Cuenta de ahorro;69600000;..."). Garbage, and
+#        a statement separator.
+#   "\n" appears in 2 of 294 names. Legitimate but rare, and a raw newline in a
+#        query parameter is a habit not worth keeping.
+# Losing these costs projection, not access: omitting `columns` returns every
+# field including the unnameable ones.
+_COLUMN = re.compile(r"^[\w .\-À-ſ()/%°#:]{1,120}$")
 
 # The allowlist above has to admit a hyphen, because real Bogotá columns use
 # one. That admits "--" as a side effect, which is a SQL comment opener, so the
@@ -302,7 +326,10 @@ class CkanClient:
             "datastore_note": (
                 "datastore_search_sql is not enabled on this portal, so there is no "
                 "server-side SQL or GROUP BY. Use bogota_filter_resource for typed "
-                "filtering; about 43% of datasets have a DataStore-backed resource."
+                "filtering. Measured over 300 random datasets, about 27% carry a "
+                "resource flagged DataStore-backed and about 13% actually return "
+                "rows — the catalogue's flag is unreliable, so treat a 404 as the "
+                "portal's metadata being wrong rather than as your mistake."
             ),
         }
 
@@ -336,7 +363,10 @@ class CkanClient:
         if fields:
             bad = [c for c in fields if not is_valid_column(c)]
             if bad:
-                raise CkanError(f"Rejected column name(s): {bad!r}")
+                raise CkanError(
+                    f"Rejected column name(s): {bad!r}. Omit `columns` to receive "
+                    "every field, including names this filter cannot express."
+                )
             params["fields"] = ",".join(fields)
         if filters:
             bad = [c for c in filters if not is_valid_column(c)]
@@ -366,7 +396,21 @@ class CkanClient:
             if parts:
                 params["sort"] = ", ".join(parts)
 
-        result = await self.action("datastore_search", params)
+        try:
+            result = await self.action("datastore_search", params)
+        except CkanError as e:
+            # Measured on 47 resources the catalogue flagged datastore_active:
+            # 20 of them answered 404 because the table does not exist. The
+            # portal's own metadata is wrong, and the raw "Not Found Error" is
+            # unreadable to a model that was told the resource was queryable.
+            if "404" in str(e):
+                raise CkanError(
+                    f"The catalogue flags resource {resource_id} as DataStore-backed, "
+                    "but the portal has no table for it (HTTP 404). This inconsistency "
+                    "affects a substantial share of the catalogue; the resource's "
+                    "download URL is the only way to reach this data."
+                ) from e
+            raise
         if not isinstance(result, dict):
             raise CkanError("datastore_search returned an unexpected body")
         return result

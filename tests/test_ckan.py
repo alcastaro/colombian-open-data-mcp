@@ -79,19 +79,63 @@ def test_invalid_dataset_ids_rejected(value):
 
 @pytest.mark.parametrize(
     "value",
-    ["Localidad", "Año", "INCLUIDOS EN VIGILANCIA CENTINELA", "tasa_x_100.000", "área (m2)"],
+    [
+        "Localidad",
+        "Año",
+        "INCLUIDOS EN VIGILANCIA CENTINELA",
+        "tasa_x_100.000",
+        "área (m2)",
+        # Regression: the stress run over 300 random datasets hit these two and
+        # the validator rejected them, turning a valid projection into an error.
+        "MES:",
+        "Nombre:",
+    ],
 )
 def test_real_bogota_column_names_accepted(value):
-    """These are shapes taken from the live portal, not invented ones."""
+    """These are shapes taken from the live portal, not invented ones.
+
+    294 column names were collected from live DataStore resources to build the
+    allowlist; every one of these appears in that set.
+    """
     assert ckan.is_valid_column(value)
 
 
 @pytest.mark.parametrize(
     "value",
-    ["", "col; DROP TABLE x", "col--comment", "col/*x*/", "a" * 200, 'col" OR "1"="1'],
+    [
+        "",
+        "col; DROP TABLE x",
+        "col--comment",
+        "col/*x*/",
+        "a" * 200,
+        'col" OR "1"="1',
+        "col\nInjected",
+        # A whole malformed CSV row the portal exposes as one header name. Real,
+        # and correctly refused — the semicolons are not decorative.
+        "111006;Cuenta de ahorro;69600000;BANCO AGRARIO DE COLOMBIA;129.",
+    ],
 )
 def test_dangerous_column_names_rejected(value):
     assert not ckan.is_valid_column(value)
+
+
+async def test_rejection_message_says_what_to_do_instead(client):
+    """A refusal the caller cannot act on is only half a message."""
+    with pytest.raises(ckan.CkanError, match="Omit `columns`"):
+        await client.datastore_search(RID, fields=["ok", "bad;col"])
+
+
+async def test_404_on_a_flagged_resource_explains_the_portal_is_wrong(client, httpx_mock):
+    """Measured: 20 of 47 resources the catalogue flagged as DataStore-backed
+    answer 404 because no table exists. The bare CKAN error is unreadable to a
+    model that was told the resource was queryable."""
+    httpx_mock.add_response(
+        url=re.compile(r".*/datastore_search.*"),
+        status_code=404,
+        json={"success": False, "error": {"__type": "Not Found Error"}},
+    )
+    with pytest.raises(ckan.CkanError, match="catalogue flags resource"):
+        await client.datastore_search(RID)
 
 
 # ─── Transport and error handling ────────────────────────────────────────────

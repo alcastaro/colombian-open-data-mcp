@@ -49,12 +49,11 @@ Two deliberate omissions, both measured rather than guessed:
   not known") and a WAF separately blocks the GET form. Offering a `GROUP BY`
   tool would advertise something the portal cannot do. A live test asserts the
   absence, so if Bogotá ever enables it the build says so.
-- **No file download.** Of 300 datasets sampled across six points of the
-  catalogue, 128 (43%) have at least one DataStore-backed resource. The
-  remaining 57% is largely geospatial (SHP, GPKG, GEOJSON, DXF, KML, WMS/WFS),
-  which a CSV/XLSX parser would not read anyway. Adding a download path would
-  have meant roughly 750 more lines plus reintroducing an SSRF guard, and would
-  still have left that gap almost as wide.
+- **No file download.** Most of Bogotá's catalogue is geospatial (SHP, GPKG,
+  GEOJSON, DXF, KML, WMS/WFS), which a CSV/XLSX parser would not read anyway.
+  Adding a download path would have meant roughly 750 more lines plus
+  reintroducing an SSRF guard, and would still have left that gap almost as
+  wide. See the coverage figures below, which are lower than an early estimate.
 
 ### Changed
 
@@ -73,6 +72,49 @@ Two deliberate omissions, both measured rather than guessed:
 - **`build_agg_expr` and `build_order_by` reject a missing column** with a
   clear `SoqlError` instead of failing several branches later inside
   `quote_ident`.
+
+### Measured, not assumed — a stress harness and what it found
+
+`sweep/stress_test.py` draws a random sample across both catalogues and runs the
+**real tool functions** against it, then writes a Markdown report. Two runs of
+300 datasets (seeds 2026 and 777) established the figures this release quotes,
+and turned up three defects that the hermetic suite could not have seen.
+
+Results over 300 sampled datasets per portal:
+
+| | `datos.gov.co` | Bogotá |
+|---|---|---|
+| Returned real rows | 299/300 (99.7%) | 39/300 (13%) |
+| Flagged as queryable | 100% | 27% |
+
+- **Bogotá's catalogue lies about `datastore_active`.** Of 80 resources flagged
+  DataStore-backed, 27 answered HTTP 404 because no table exists. An earlier
+  estimate of "43% of datasets are queryable" counted the flag rather than the
+  outcome, and drew from systematic rather than random offsets; the honest
+  end-to-end figure is about 13%. `datastore_search` now rewrites that 404 into
+  an explanation naming the portal's metadata as the cause, instead of passing
+  along a bare CKAN "Not Found Error" that reads like the caller's mistake.
+- **The column allowlist rejected valid column names.** `MES:` and `Nombre:`
+  exist on the portal and a colon was not permitted, so a legitimate projection
+  became an error. 294 real column names were collected from live DataStore
+  resources and the allowlist rebuilt from that evidence. Semicolons and
+  newlines stay refused — the semicolon cases are entire malformed CSV rows the
+  portal exposes as a single header — and the rejection message now says to
+  omit `columns` to get every field instead.
+- **`get_site_stats` reported 10,000 datasets. There are 8,391.** The old call
+  counted every asset type and saturated: an unfiltered catalogue query returns
+  exactly 10,000 while the per-type counts sum to 12,251, so 10,000 was a
+  ceiling, not a total. It now counts `only=dataset`, which is also what
+  `search_datasets` can actually reach.
+
+Neither run produced a single raised exception across ~1,850 tool calls — the
+error-envelope guarantee holds against the live catalogue, not just against
+mocks.
+
+Also worth recording for later: about 9% of Bogotá's resources are queryable
+**services** (ESRI REST, WFS, WMS) rather than static files. They accept
+`?query=`, support pagination and statistics, and need no download. That is the
+open coverage work with the best return, and it is not in this release.
 
 ### Added — repository
 

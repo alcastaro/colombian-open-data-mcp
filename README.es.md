@@ -7,8 +7,8 @@
 # colombian-open-data-mcp
 
 **Servidor MCP para los datos abiertos del Estado colombiano — el portal
-nacional [datos.gov.co](https://www.datos.gov.co) (Socrata, más de 10.000
-conjuntos de datos) y el portal distrital de Bogotá
+nacional [datos.gov.co](https://www.datos.gov.co) (Socrata, 8.391 conjuntos de
+datos) y el portal distrital de Bogotá
 [datosabiertos.bogota.gov.co](https://datosabiertos.bogota.gov.co)
 (CKAN, ~1.900 conjuntos).**
 
@@ -18,7 +18,7 @@ cualquier asistente compatible con MCP (Claude Desktop, Claude Code, Cursor, VS
 Code Copilot, Gemini CLI) directamente con los catálogos y con los datos vivos:
 el filtrado y la agregación los ejecutan los portales, no el modelo.
 
-**20 herramientas · 212 pruebas herméticas · MIT**
+**20 herramientas · 221 pruebas herméticas · MIT**
 
 ---
 
@@ -81,17 +81,32 @@ la defensa contra la inyección en la URL.
 
 ## Qué puede y qué no puede responder Bogotá
 
-Conviene saberlo antes de pedirle algo que no puede hacer. Sobre una muestra de
-300 conjuntos tomada en seis puntos del catálogo: **128 (43%) tienen al menos un
-recurso respaldado por el DataStore**, y esos sí se pueden leer fila por fila. El
-57% restante es mayoritariamente geoespacial — SHP, GPKG, GEOJSON, DXF, KML,
-WMS/WFS, las capas de la IDECA — publicado como archivos y no a través del
-DataStore.
+Conviene saberlo antes de pedirle algo que no puede hacer. Estas cifras salen de
+ejecutar las herramientas de verdad contra 300 conjuntos elegidos al azar
+(`sweep/stress_test.py`, semillas 2026 y 777):
 
-Esos conjuntos siguen siendo plenamente descubribles: se obtienen los metadatos,
-la lista de recursos y las URL de descarga. Simplemente no se pueden consultar
-desde aquí. `bogota_get_dataset` marca cada recurso con `queryable: true/false`
-para que el modelo lo sepa antes de intentarlo.
+| | datos.gov.co | Bogotá |
+|---|---|---|
+| Conjuntos que devolvieron filas reales | **100%** (300/300) | **13%** (39/300) |
+| Conjuntos marcados como consultables | 100% | 27% |
+
+La brecha entre el 27% marcado y el 13% entregado es **el propio portal
+equivocándose en sus metadatos**: de 80 recursos que el catálogo marcaba como
+`datastore_active`, 27 respondieron HTTP 404 porque no existe tabla para ellos.
+El servidor reescribe ese 404 como una explicación en vez de reenviar el error
+crudo de CKAN, para que el modelo entienda que se equivocó el catálogo y no él.
+
+El resto del catálogo de Bogotá es mayoritariamente geoespacial — SHP, GPKG,
+GEOJSON, DXF, KML, las capas de la IDECA — publicado como archivos y no a través
+del DataStore. Esos conjuntos siguen siendo plenamente descubribles: se obtienen
+los metadatos, la lista de recursos y las URL de descarga. `bogota_get_dataset`
+marca cada recurso con `queryable: true/false`, pero conviene tratarlo como una
+pista, no como una promesa.
+
+Alrededor del 9% de los recursos de Bogotá son **servicios** consultables y no
+archivos — endpoints ESRI REST, WFS y WMS que aceptan `?query=`. Leerlos no
+requiere descargar nada, y es el trabajo de ampliación de cobertura con mejor
+retorno que queda pendiente.
 
 Este servidor **no** descarga archivos de recursos, deliberadamente. Hacerlo
 supondría unas 750 líneas más y una guardia contra SSRF, y los analizadores de
@@ -162,7 +177,7 @@ consultas multisentencia. Vea **[SECURITY.md](SECURITY.md)**.
 
 ```bash
 uv sync --group dev --extra dev
-uv run pytest                                  # 212 pruebas herméticas, piso de cobertura 85%
+uv run pytest                                  # 221 pruebas herméticas, piso de cobertura 85%
 uv run ruff check src/ tests/
 uv run mypy src/colombian_open_data_mcp/
 RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 11 pruebas en vivo, opcionales

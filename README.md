@@ -7,7 +7,7 @@
 # colombian-open-data-mcp
 
 **MCP server for Colombia's open government data — the national portal
-[datos.gov.co](https://www.datos.gov.co) (Socrata, 10,000+ datasets) and
+[datos.gov.co](https://www.datos.gov.co) (Socrata, 8,391 datasets) and
 Bogotá's city portal
 [datosabiertos.bogota.gov.co](https://datosabiertos.bogota.gov.co)
 (CKAN, ~1,900 datasets).**
@@ -18,7 +18,7 @@ MCP-compatible assistant (Claude Desktop, Claude Code, Cursor, VS Code Copilot,
 Gemini CLI) straight to the catalogues and the live data, with filtering and
 aggregation executed by the portals themselves rather than by the model.
 
-**20 tools · 212 hermetic tests · MIT**
+**20 tools · 221 hermetic tests · MIT**
 
 ---
 
@@ -79,16 +79,30 @@ validation — and identifier validation is the defence against URL injection.
 
 ## What Bogotá can and cannot answer
 
-Worth knowing before you ask it something it cannot do. Sampling 300 datasets
-across six points of the catalogue: **128 (43%) have at least one
-DataStore-backed resource**, and those can be read row by row. The other 57% is
-mostly geospatial — SHP, GPKG, GEOJSON, DXF, KML, WMS/WFS, Bogotá's IDECA
-layers — published as files rather than through the DataStore.
+Worth knowing before you ask it something it cannot do. These figures come from
+running the actual tools against 300 randomly sampled datasets
+(`sweep/stress_test.py`, seeds 2026 and 777):
 
-Those datasets remain fully discoverable: you get the metadata, the resource
-list and the download URLs. They are just not queryable from here.
-`bogota_get_dataset` marks every resource with `queryable: true/false` so the
-model knows before it tries.
+| | datos.gov.co | Bogotá |
+|---|---|---|
+| Datasets that returned real rows | **100%** (300/300) | **13%** (39/300) |
+| Datasets flagged as queryable | 100% | 27% |
+
+The gap between 27% flagged and 13% delivered is **the portal's own metadata
+being wrong**: of 80 resources the catalogue marked `datastore_active`, 27
+answered HTTP 404 because no table exists for them. The server rewrites that
+404 into an explanation rather than passing the raw CKAN error along, so a
+model is told the catalogue was wrong instead of assuming it made a mistake.
+
+The rest of Bogotá's catalogue is mostly geospatial — SHP, GPKG, GEOJSON, DXF,
+KML, the IDECA layers — published as files rather than through the DataStore.
+Those datasets stay fully discoverable: you get the metadata, the resource list
+and the download URLs. `bogota_get_dataset` marks every resource
+`queryable: true/false`, but treat that as a hint, not a promise.
+
+About 9% of Bogotá's resources are queryable **services** rather than files —
+ESRI REST, WFS, WMS endpoints that accept `?query=`. Reading those needs no
+download at all, and it is the highest-value coverage work still open.
 
 This server deliberately does **not** download resource files. Doing so would
 mean roughly 750 more lines plus an SSRF guard, and the CSV/XLSX parsers it
@@ -156,7 +170,7 @@ multi-statement queries. See **[SECURITY.md](SECURITY.md)**.
 
 ```bash
 uv sync --group dev --extra dev
-uv run pytest                                  # 212 hermetic tests, 85% coverage floor
+uv run pytest                                  # 221 hermetic tests, 85% coverage floor
 uv run ruff check src/ tests/
 uv run mypy src/colombian_open_data_mcp/
 RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 11 live tests, opt-in
