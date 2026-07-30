@@ -85,18 +85,22 @@ agregación, porque ninguno expone `datastore_search_sql`.
 
 ## Qué puede y qué no puede responder cada portal
 
-Estas cifras salen de ejecutar las herramientas de verdad contra conjuntos
-elegidos al azar (`sweep/stress_test.py`), no de leer documentación:
+Estas cifras salen de ejecutar las herramientas de verdad contra 450 conjuntos
+elegidos al azar — 150 por portal, semilla 31337 (`sweep/stress_test.py`) —, no
+de leer documentación:
 
 | | datos.gov.co | Bogotá | Cali |
 |---|---|---|---|
 | Plataforma | Socrata | CKAN 2.10.4 | CKAN 2.10.4 |
 | Filtrar del lado del servidor | sí | sí | sí |
 | **Agregar del lado del servidor** | **sí** | no | no |
-| Conjuntos que devolvieron filas reales | ~100% | ~13% | ver informe |
+| Conjuntos que devolvieron filas reales | **100%** | **27%** | **75%** |
 
-En los portales CKAN esa última fila es una propiedad del portal, no de este
-servidor. La causan dos cosas. La mayor parte de cada catálogo se publica como
+De las 1.355 llamadas de esa corrida, **ninguna lanzó excepción** — todos los
+fallos llegaron como un sobre de error sobre el que el modelo puede actuar.
+
+En los portales CKAN la última fila de la tabla es una propiedad del portal, no
+de este servidor. La causan dos cosas. La mayor parte de cada catálogo se publica como
 archivos y no a través del DataStore — muy geoespacial en el caso de Bogotá
 (SHP, GPKG, GEOJSON, DXF, KML, las capas de la IDECA). Y la propia bandera
 `datastore_active` del catálogo no es fiable: de 80 recursos medidos que la
@@ -164,7 +168,7 @@ consulta por su cuenta. El proyecto hermano
 [`dominican-open-data-mcp`](https://github.com/alcastaro/datos.gob.do-MCP-server)
 carga unas 4.500 líneas de caché, análisis de archivos y reparación de enlaces
 que le impone un portal CKAN sin DataStore. Este no las necesita, y por eso
-cubre 20 herramientas con mucho menos código. Menos líneas aquí es consecuencia
+cubre 28 herramientas con mucho menos código. Menos líneas aquí es consecuencia
 de un mejor sustrato, no de un producto más pobre.
 
 **Toda herramienta retorna, ninguna lanza excepción.** Una caída del portal

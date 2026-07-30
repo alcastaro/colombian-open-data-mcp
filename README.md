@@ -83,18 +83,22 @@ asserts that. Neither has an aggregation tool, because neither portal exposes
 
 ## What each portal can and cannot answer
 
-These figures come from running the actual tools against randomly sampled
-datasets (`sweep/stress_test.py`), not from reading documentation:
+These figures come from running the actual tools against 450 randomly sampled
+datasets — 150 per portal, seed 31337 (`sweep/stress_test.py`) — not from
+reading documentation:
 
 | | datos.gov.co | Bogotá | Cali |
 |---|---|---|---|
 | Platform | Socrata | CKAN 2.10.4 | CKAN 2.10.4 |
 | Filter server-side | yes | yes | yes |
 | **Aggregate server-side** | **yes** | no | no |
-| Datasets that returned real rows | ~100% | ~13% | see report |
+| Datasets that returned real rows | **100%** | **27%** | **75%** |
 
-For the CKAN portals that last row is a property of the portal, not of this
-server. Two things cause it. Most of each catalogue is published as files
+Across all 1,355 tool calls in that run, **not one raised an exception** — every
+failure arrived as an error envelope the model can act on.
+
+For the CKAN portals the last row of the table is a property of the portal, not
+of this server. Two things cause it. Most of each catalogue is published as files
 rather than through the DataStore — heavily geospatial in Bogotá's case (SHP,
 GPKG, GEOJSON, DXF, KML, the IDECA layers). And the catalogue's own
 `datastore_active` flag is unreliable: of 80 resources measured that carried
@@ -160,7 +164,7 @@ a DuckDB layer or a download step, because both execute the query themselves.
 The sibling [`dominican-open-data-mcp`](https://github.com/alcastaro/datos.gob.do-MCP-server)
 carries about 4,500 lines of caching, parsing and link-repair machinery that a
 CKAN portal without a DataStore forces on you. This one does not need them,
-which is why it covers 20 tools in far less code. Fewer lines here is the
+which is why it covers 28 tools in far less code. Fewer lines here is the
 result of a better substrate, not a thinner product.
 
 **Every tool returns, none raises.** A portal outage arrives as

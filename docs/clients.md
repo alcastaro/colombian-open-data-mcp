@@ -143,7 +143,8 @@ before you see one. National-portal tools are unaffected.
 
 **A city dataset has no queryable resource.**
 Most of those catalogues are published as files rather than through the DataStore,
-much of it geospatial: measured over 300 random datasets, about 13% return rows.
+much of it geospatial. Measured over 450 random datasets: about 27% of Bogotá's
+and 75% of Cali's return rows.
 `bogota_get_dataset` marks each resource `queryable: true/false`; when it is
 false the download URL is all there is.
 
