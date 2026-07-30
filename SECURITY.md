@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.3.x   | ✅        |
-| < 0.3   | ❌        |
+| 0.4.x   | ✅        |
+| < 0.4   | ❌        |
 
 Always run the latest release. Security fixes land on the newest minor only.
 
@@ -103,17 +103,64 @@ rule to match the other. Sort directions are additionally restricted to
 Refusing a column costs projection, never access: omitting `columns` returns
 every field, including names the rule will not express.
 
-### No SSRF surface
+### Outbound requests and the SSRF guard
 
-This is worth stating explicitly because the sibling Dominican server needs a
-whole SSRF guard module and this one does not.
+**This section changed in 0.4 and the change matters.** Through 0.3 this server
+contacted only hosts written in its own source, and said so here. That is no
+longer true, deliberately.
 
-That server downloads CKAN resource files, which live on arbitrary ministry
-hosts, so it must resolve every hostname and refuse link-local, loopback and
-RFC-1918 addresses. This server never downloads a resource file. Every outbound
-request goes to one of four fixed hosts baked into the source:
-`api.us.socrata.com`, `www.datos.gov.co`, `datosabiertos.bogota.gov.co` and
-`datos.cali.gov.co`. No tool takes a URL.
+Two capabilities added in 0.4 follow addresses that come out of a portal
+catalogue rather than out of this code. `city_esri_query` and its siblings reach
+ArcGIS REST services, which for Bogotá live on `serviciosgis.catastrobogota.gov.co`,
+`portalgis.habitatbogota.gov.co` and several more — none of them under
+`bogota.gov.co`. `city_read_resource_file` reaches a published file at its own
+address; 88% of Bogotá's are on `*.bogota.gov.co` and the rest are not. Refusing
+the remainder would have meant dropping real datasets, so instead the address
+comes from data and two things stand between the catalogue and the socket.
+
+**First, no tool accepts a URL.** Every one of these tools takes a resource
+UUID, and `src/colombian_open_data_mcp/ckan_tools.py` looks the address up
+through the portal's own `resource_show`. The set of reachable hosts is
+therefore bounded by what a Colombian government catalogue publishes, not by
+what an argument can express. A test asserts that no tool signature has a `url`
+parameter.
+
+**Second, `netguard.py` enforces a network policy on top of that.** The default
+mode, `public-only`, requires the scheme to be http or https and requires
+*every* address the hostname resolves to be globally routable — which refuses
+loopback, the RFC-1918 ranges, IPv6 unique-local, carrier-grade NAT and the
+cloud instance-metadata endpoint at `169.254.169.254`. Resolution happens even
+for bare IP literals, so the obfuscated spellings (decimal, octal,
+IPv4-mapped-IPv6) are normalised before classification. The guard is installed
+as an httpx *request* event hook, which is what makes it validate every redirect
+hop rather than only the first request — a URL answering `302 Location:
+http://127.0.0.1/` is refused on the hop.
+
+Two settings change the policy:
+
+| `CO_MCP_NETGUARD` | Behaviour |
+|---|---|
+| `public-only` (default) | Scheme check plus resolve-and-require-globally-routable. |
+| `strict` | Additionally the host must match `DEFAULT_STRICT_HOSTS` (the five portals, `*.gov.co`, `*.arcgis.com`) or `CO_MCP_ALLOW_HOSTS`. For hosted deployments. |
+| `off` | No checks. Trusted local use and test suites only. |
+
+`CO_MCP_ALLOW_HOSTS` is a comma-separated list of hostnames or `*.` wildcards
+that bypass resolution entirely. An unrecognised mode raises rather than falling
+back, so a typo on a hosted deployment fails loudly instead of silently
+downgrading `strict`.
+
+**Known limit, stated rather than implied away.** The guard resolves the
+hostname and httpx resolves it again to connect. An attacker controlling a
+domain's DNS who can flip the answer between those two lookups is not blocked.
+Closing that window means pinning the validated address at the transport layer;
+it is a known residual risk, not an oversight.
+
+**Nothing downloaded is retained.** `city_read_resource_file` streams under a
+12 MB cap, parses the first rows, answers and discards the bytes. There is no
+cache and no disk state. That is a deliberate limit as much as a performance
+choice: persisting these datasets would make this server a *responsable del
+tratamiento* under Ley 1581 de 2012 for any of them containing identifiable
+people, which is a decision to take explicitly and separately.
 
 ### Output bounds
 

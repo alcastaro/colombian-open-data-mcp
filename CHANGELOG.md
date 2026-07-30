@@ -5,6 +5,72 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-08-29
+
+Five portals, and two new ways to reach data no DataStore holds. **24 tools**
+(down from 28, covering twice the portals), 523 hermetic tests, 92% coverage.
+
+### Added
+
+- **Valle del Cauca** (`datosabiertos.valledelcauca.gov.co`, 50 datasets) and
+  **Cartagena de Indias** (`datosabiertos.cartagena.gov.co`, 38 datasets, CKAN
+  2.11.3). Both catalogues were walked end to end rather than sampled: Valle
+  returns rows for 100% of its datasets, Cartagena for 97%, with not a single
+  resource wrongly flagged `datastore_active` in either.
+- **`city_esri_service_info`, `city_esri_query`, `city_esri_aggregate`** — read
+  the ArcGIS REST services that 334 of Bogotá's 1,917 datasets are published as.
+  These are APIs, not files: they filter, project and paginate on the server,
+  and `city_esri_aggregate` is the only territorial GROUP BY in this server that
+  runs remotely instead of being summed over rows in the model's context.
+- **`city_read_resource_file`** — download and parse a published CSV, XLSX,
+  JSON or GeoJSON resource for the datasets that have no DataStore table and no
+  service. Streamed under a 12 MB cap, parsed, answered, discarded; no cache and
+  no disk state.
+- **`netguard.py`** — the SSRF guard those two capabilities require. Default
+  policy is public-internet-only: every resolved address must be globally
+  routable, which refuses loopback, RFC-1918, IPv6 unique-local and the cloud
+  metadata endpoint at `169.254.169.254`. Installed as an httpx request hook so
+  redirect hops are validated too. `strict` and `off` modes via
+  `CO_MCP_NETGUARD`. 48 tests.
+- Excel support through a new `openpyxl` dependency. Cartagena publishes 34 of
+  its 38 datasets as XLSX, so without it most of one portal would be unreadable.
+
+### Changed
+
+- **The per-portal tool families collapsed into eight `city_*` tools taking a
+  `city` parameter.** Four portals the old way would have been 32 near-identical
+  schemas; this is 12 city tools covering twice the ground, and a fifth portal
+  is now a descriptor and nothing else. This does not reverse the earlier
+  decision against a `portal` parameter — that argument was Socrata versus CKAN,
+  which use different identifiers and offer different capabilities, and it still
+  stands. Between CKAN portals none of it applies.
+- `SECURITY.md`'s "No SSRF surface" section is **gone, because it stopped being
+  true**. It has been replaced by an account of what the server now reaches, why,
+  and what constrains it — including the residual DNS-rebinding window, stated
+  rather than implied away.
+- Tool descriptions now carry each portal's measured coverage, so a model can
+  tell that Bogotá is thirty times larger than Cartagena but returns rows a
+  third as often.
+
+### Fixed
+
+- **ESRI queries went to the layer root instead of its `/query` endpoint.** A
+  layer root answers HTTP 200 with its own description and ignores every
+  parameter, so the tool reported zero rows for a layer holding eleven and
+  nothing in the response indicated a problem. Found against the live service,
+  not in review; a test now asserts the requested path.
+- ArcGIS reports query errors under HTTP 200 with an `error` object in the body.
+  The client checks the body, never the status code alone.
+- A resource the Bogotá catalogue labels `ESRI REST` may be a zipped shapefile.
+  Those are now refused with a message naming the tool that does read files.
+
+### Security
+
+- No tool accepts a URL. The ESRI and file tools take a resource UUID and look
+  the address up through the portal's own `resource_show`, so the reachable host
+  set is bounded by what a Colombian government catalogue publishes. A test
+  asserts the absence of any `url`-shaped parameter across all 24 tools.
+
 ## [0.3.0] — 2026-08-29
 
 Three portals instead of two, and the coverage work the stress harness said was

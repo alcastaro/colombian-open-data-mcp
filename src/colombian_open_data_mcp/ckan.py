@@ -1,39 +1,50 @@
-"""CKAN client for Colombian city portals — currently Bogotá.
+"""CKAN client for the four Colombian territorial portals.
 
-Ported from the Dominican MCP's ``ckan.py``, with one substantive change: that
-client hardcodes ``datos.gob.do`` in its base URL, its permalinks and its error
-hints, so it can only ever serve one portal. Here the client takes a
-``CkanPortal`` describing the host, which is what lets a second Colombian city
-be added later without touching this module.
+Bogotá, Cali, Valle del Cauca and Cartagena all run CKAN, and this one client
+serves all of them. It was ported from the Dominican MCP's ``ckan.py`` with one
+substantive change: that client hardcodes ``datos.gob.do`` in its base URL, its
+permalinks and its error hints, so it can only ever serve one portal. Here the
+client takes a :class:`CkanPortal` describing the host, which is why adding
+Valle del Cauca and Cartagena in v0.4 cost two descriptors and no new code.
 
-**What Bogotá can and cannot do**, measured against the live API on 2026-08-29:
+**What these portals can and cannot do**, measured against the live APIs on
+2026-08-29:
 
 * ``package_search``, ``package_show``, ``organization_list``, ``group_list``,
-  ``tag_list`` — all work.
+  ``tag_list`` — all work everywhere.
 * ``datastore_search`` — works, and accepts ``fields``, ``filters``, ``q``,
   ``sort``, ``limit`` and ``offset``. This is what makes typed server-side
   filtering possible without downloading anything.
-* ``datastore_search_sql`` — **not available.** The action is not registered
-  (``HTTP 400: Action name not known``) and, separately, a WAF blocks the GET
-  form of that path with a 500. So there is no server-side GROUP BY on this
-  portal, and no aggregation tool is offered for it. Promising one would be
-  promising something the portal cannot do.
+* ``datastore_search_sql`` — **not available on any of the four.** Bogotá does
+  not register the action (``HTTP 400``) and separately a WAF blocks the GET
+  form with a 500; Cali answers 403; Valle and Cartagena answer 400. Different
+  guards, identical consequence: there is no server-side GROUP BY on any city
+  portal, and no aggregation tool is offered for one. Promising it would be
+  promising something the portals cannot do.
 
-Coverage, measured end to end over 300 randomly sampled datasets (two runs of
-150, seeds 2026 and 777, see ``sweep/stress_test.py``):
+**Coverage differs enormously between them**, which is why it is a field on the
+descriptor and appears in the tool descriptions. Measured end to end — rows
+actually returned, not the catalogue's own flag counted:
 
-* ~27% of datasets carry a resource the catalogue *flags* as DataStore-backed.
-* **~13% actually return rows.** The gap is the portal's own metadata being
-  wrong: of 80 resources flagged ``datastore_active``, 27 answered HTTP 404
-  because no table exists for them.
+============  ========  ======================================================
+Portal        Datasets  Return rows through the DataStore
+============  ========  ======================================================
+Bogotá           1,917  ~27%
+Cali               657  ~75%
+Valle               50  100% (whole catalogue walked)
+Cartagena           38  97% (whole catalogue walked)
+============  ========  ======================================================
 
-An earlier estimate of 43% came from systematic rather than random offsets and
-counted the flag rather than the outcome. Trust the flag for a hint, never for
-a promise — which is why a 404 here is rewritten into an explanation.
+Bogotá's gap is its own metadata being wrong: of 80 resources flagged
+``datastore_active``, 27 answered HTTP 404 because no table exists. Trust the
+flag for a hint, never for a promise — which is why a 404 here is rewritten
+into an explanation rather than forwarded raw.
 
-The rest of the catalogue is mostly geospatial (SHP, GPKG, GEOJSON, DXF, KML)
-plus a meaningful slice of queryable *services* (ESRI REST, WFS, WMS — about 9%
-of resources), which are APIs rather than files and remain unexploited.
+The rest of Bogotá's catalogue is not lost, it is just not in the DataStore.
+About 9% of its resources are queryable *services* (ESRI REST, WFS, WMS), which
+:mod:`.esri` reaches without downloading anything, and a further slice are plain
+tabular files, which :mod:`.tabular` downloads and parses. Between the three
+avenues Bogotá reaches roughly 88%.
 """
 
 from __future__ import annotations
@@ -42,7 +53,7 @@ import logging
 import re
 import ssl
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -61,19 +72,30 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class CkanPortal:
-    """A CKAN portal this client can talk to."""
+    """A CKAN portal this client can talk to.
 
+    ``city`` holds the territory's human name. For three of the four portals
+    that is literally a city; for Valle del Cauca it is a department. The field
+    keeps its name because it is what every envelope and tool description says,
+    and inventing a second word for one case would cost more than it explains.
+    """
+
+    #: Short identifier. This is the value the ``city`` parameter of every
+    #: ``city_*`` tool accepts, so it is part of the public surface.
     key: str
     host: str
     name: str
     city: str
     ckan_version: str
-    # Tool prefix. Also the only thing separating one portal's tools from
-    # another's in the MCP surface.
-    prefix: str
     # Roughly how many datasets the catalogue holds, for tool descriptions. A
     # model choosing between portals benefits from knowing which is larger.
     approx_datasets: int
+    # Share of sampled datasets that actually return rows through the DataStore,
+    # measured end to end rather than counted off the catalogue's own flag. It
+    # goes in the tool description because the honest answer to "will this
+    # work?" differs by an order of magnitude between these portals, and a model
+    # that knows Bogotá is a coin flip will reach for the fallbacks sooner.
+    datastore_coverage: str
 
     @property
     def base_url(self) -> str:
@@ -99,8 +121,8 @@ BOGOTA = CkanPortal(
     name="Datos Abiertos Bogotá",
     city="Bogotá D.C.",
     ckan_version="2.10.4",
-    prefix="bogota",
     approx_datasets=1917,
+    datastore_coverage="about 27%",
 )
 
 # Cali runs the same CKAN release as Bogotá with the same extensions, and
@@ -114,11 +136,48 @@ CALI = CkanPortal(
     name="Datos Abiertos Cali",
     city="Santiago de Cali",
     ckan_version="2.10.4",
-    prefix="cali",
     approx_datasets=657,
+    datastore_coverage="about 75%",
 )
 
-PORTALS = {p.key: p for p in (BOGOTA, CALI)}
+# Valle del Cauca is a department rather than a city, and it is the cleanest
+# catalogue of the four: all 50 datasets were walked end to end on 2026-08-29
+# and every one returned rows, with not a single resource wrongly flagged
+# datastore_active. Small, but small and correct.
+VALLE = CkanPortal(
+    key="valle",
+    host="datosabiertos.valledelcauca.gov.co",
+    name="Datos Abiertos Valle del Cauca",
+    city="Valle del Cauca",
+    ckan_version="2.10.4",
+    approx_datasets=50,
+    datastore_coverage="100% of its 50 datasets",
+)
+
+# Cartagena is the only one of the four on CKAN 2.11.3 rather than 2.10.4. The
+# actions this client uses are identical across those releases, which is why
+# nothing here branches on the version — but a live test asserts the version it
+# actually reports, so a divergence shows up as a failing test rather than as a
+# tool that quietly stopped working. All 38 datasets were walked: 37 return
+# rows. Its catalogue is almost entirely XLSX.
+CARTAGENA = CkanPortal(
+    key="cartagena",
+    host="datosabiertos.cartagena.gov.co",
+    name="Datos Abiertos Cartagena",
+    city="Cartagena de Indias",
+    ckan_version="2.11.3",
+    approx_datasets=38,
+    datastore_coverage="97% of its 38 datasets",
+)
+
+PORTALS = {p.key: p for p in (BOGOTA, CALI, VALLE, CARTAGENA)}
+
+# The accepted values of the ``city`` parameter, spelled out so FastMCP puts a
+# real enum in the tool schema instead of an open string. It has to be a literal
+# expression — a Literal built from ``tuple(PORTALS)`` is not something a type
+# checker can read — so ``test_version_sync`` asserts the two stay in step and
+# fails the build if a portal is added here and not there.
+CityKey = Literal["bogota", "cali", "valle", "cartagena"]
 
 
 # CKAN accepts either a UUID or the URL slug ("name") wherever it says "id".
@@ -321,6 +380,23 @@ class CkanClient:
             raise CkanError("package_show returned an unexpected body")
         return result
 
+    async def resource_show(self, resource_id: str) -> dict[str, Any]:
+        """Metadata for one resource, including the address its bytes live at.
+
+        This is the hinge of the v0.4 security design. The ESRI and file tools
+        never accept a URL from the model; they accept a resource UUID and come
+        here for the address. So the only hosts this server can be pointed at
+        are ones a Colombian government catalogue is already publishing, which
+        is a far narrower surface than "any URL an argument can express" — and
+        the SSRF guard in :mod:`.netguard` then applies on top of that.
+        """
+        if not is_valid_uuid(resource_id):
+            raise CkanError(f"Not a valid resource UUID: {resource_id!r}")
+        result = await self.action("resource_show", {"id": resource_id})
+        if not isinstance(result, dict):
+            raise CkanError("resource_show returned an unexpected body")
+        return result
+
     async def organization_list(self, limit: int = 50) -> list[dict[str, Any]]:
         result = await self.action("organization_list", {"all_fields": "true"})
         items = result if isinstance(result, list) else []
@@ -363,9 +439,10 @@ class CkanClient:
             "datastore_sql_available": False,
             "datastore_note": (
                 "datastore_search_sql is not enabled on this portal, so there is no "
-                f"server-side SQL or GROUP BY. Use {self.portal.prefix}_filter_resource "
-                "for typed filtering. The catalogue's datastore_active flag is "
-                "unreliable — a substantial share of flagged resources answer 404 "
+                "server-side SQL or GROUP BY. Use city_filter_resource with "
+                f"city={self.portal.key!r} for typed filtering. The catalogue's "
+                "datastore_active flag is unreliable — a substantial share of "
+                "flagged resources answer 404 "
                 "because no table exists — so treat a 404 as the portal's metadata "
                 "being wrong rather than as your mistake."
             ),

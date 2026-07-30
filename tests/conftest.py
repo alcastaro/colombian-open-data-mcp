@@ -21,6 +21,22 @@ def _no_retry_backoff(monkeypatch):
     monkeypatch.setattr(retry, "BASE_DELAY", 0.0)
 
 
+@pytest.fixture(autouse=True)
+def _netguard_off_by_default(monkeypatch):
+    """Disable the SSRF guard for the hermetic suite.
+
+    It resolves DNS, and a hermetic test must never touch the network — a
+    fixture host like ``fixtures.test`` does not resolve, so every mocked
+    request would be refused before pytest-httpx ever saw it. Turning the guard
+    off here is not weakening a check: tests/test_netguard.py exercises the
+    guard directly, with resolution substituted, and its own fixture clears this
+    variable so it tests the shipped default rather than this override.
+    """
+    from colombian_open_data_mcp import netguard
+
+    monkeypatch.setenv(netguard.MODE_ENV, "off")
+
+
 def pytest_collection_modifyitems(config, items):
     """Auto-skip live tests unless RUN_LIVE_TESTS=1."""
     if os.environ.get("RUN_LIVE_TESTS") == "1":

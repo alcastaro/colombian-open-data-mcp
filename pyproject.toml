@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "colombian-open-data-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "MCP server for Colombia's open government data — datos.gov.co (Socrata), Bogotá and Cali (CKAN)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,6 +44,10 @@ dependencies = [
     "mcp>=1.9.0,<2",
     "httpx>=0.27",
     "truststore>=0.10",
+    # Cartagena's catalogue is 34 XLSX resources out of 38, and Bogotá's
+    # download avenue is a third Excel. Without this the file reader would be
+    # CSV-only and would miss most of one portal outright.
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]

@@ -404,8 +404,8 @@ def test_portal_urls_are_built_from_the_host():
         name="X",
         city="X",
         ckan_version="2.10",
-        prefix="x",
         approx_datasets=10,
+        datastore_coverage="all of it",
     )
     assert p.base_url == "https://ejemplo.gov.co"
     assert p.api_url == "https://ejemplo.gov.co/api/3/action"

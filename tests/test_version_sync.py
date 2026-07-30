@@ -121,3 +121,38 @@ def test_changelog_has_an_entry_for_the_shipping_version():
     if not changelog.exists():
         pytest.skip("CHANGELOG.md not present (installed-package run)")
     assert f"[{__version__}]" in changelog.read_text(encoding="utf-8")
+
+
+def test_the_city_enum_and_the_portal_registry_agree():
+    """`ckan.CityKey` has to be a literal expression, so it can drift.
+
+    A type checker cannot read a Literal built from ``tuple(PORTALS)``, so the
+    accepted city values are spelled out by hand next to the registry. That
+    means adding a portal in one place and not the other is possible, and the
+    consequences are silent: a value in the tool schema with no portal behind it
+    is a call that can only fail, and a portal missing from the schema is one no
+    model can reach. This is the test that makes the drift loud.
+    """
+    from typing import get_args
+
+    from colombian_open_data_mcp import ckan
+
+    assert sorted(get_args(ckan.CityKey)) == sorted(ckan.PORTALS)
+
+
+def test_no_tool_accepts_a_url():
+    """The load-bearing property behind the whole v0.4 outbound-request design.
+
+    ESRI queries and file downloads reach hosts this source does not name. That
+    is only defensible because the address comes from a portal catalogue rather
+    than from an argument. A `url` parameter anywhere would quietly turn this
+    server into a general-purpose fetcher, so its absence is asserted rather
+    than assumed.
+    """
+    import asyncio
+
+    from colombian_open_data_mcp.server import mcp
+
+    for tool in asyncio.run(mcp.list_tools()):
+        properties = set(tool.inputSchema.get("properties") or {})
+        assert not (properties & {"url", "uri", "address", "endpoint", "host"}), tool.name
