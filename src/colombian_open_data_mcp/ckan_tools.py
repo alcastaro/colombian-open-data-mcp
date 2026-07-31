@@ -497,7 +497,18 @@ def register(
             return guard_error(e, resource_id=resource_id)
         except (ckan.CkanError, esri.EsriError) as e:
             return err(e, hint_for(city), resource_id=resource_id)
-        return esri.format_service_info(body, target)
+        info = esri.format_service_info(body, target)
+        # How many features the layer holds decides the next call: a few hundred
+        # can simply be listed, forty thousand should be aggregated. It costs one
+        # extra request and is worth it. A service root has no count, and some
+        # layers refuse the query — neither is a failure of this call, so the
+        # field is simply absent rather than the whole answer being lost.
+        if esri.is_layer_url(target):
+            try:
+                info["feature_count"] = await esri_client.count(target)
+            except (esri.EsriError, NetGuardError):
+                info["feature_count"] = None
+        return info
 
     @mcp.tool(
         name="city_esri_query",

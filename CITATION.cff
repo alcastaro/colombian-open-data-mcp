@@ -14,15 +14,17 @@ repository-code: "https://github.com/alcastaro/colombian-open-data-mcp"
 url: "https://github.com/alcastaro/colombian-open-data-mcp"
 abstract: >-
   A Model Context Protocol server that turns Colombia's open government data
-  into a native integration for any MCP client. It covers two portals on two
-  different platforms: the national catalogue at datos.gov.co, which runs
-  Socrata and is queried server-side with SoQL, and Bogotá's city catalogue at
-  datosabiertos.bogota.gov.co, which runs CKAN and is queried through the
-  DataStore. Because both platforms execute the query themselves, no local
-  cache or download step is needed and only rolled-up results cross the wire.
-  The differences between the two portals are exposed rather than smoothed
-  over: Bogotá does not offer server-side aggregation, and the server declines
-  to advertise one.
+  into a native integration for any MCP client. It covers five portals: the
+  national catalogue at datos.gov.co, which runs Socrata and is queried
+  server-side with SoQL, and the territorial catalogues of Bogotá, Cali, Valle
+  del Cauca and Cartagena, which run CKAN and are queried through the
+  DataStore. Where a territorial dataset is not in the DataStore, the server
+  reaches it two other ways: through the ArcGIS REST services many are
+  published as, which filter and aggregate remotely, and by reading the
+  published file. Nothing is cached and nothing is stored. The differences
+  between the platforms are exposed rather than smoothed over: no CKAN portal
+  offers server-side aggregation over its DataStore, and the server declines to
+  advertise one.
 keywords:
   - model context protocol
   - mcp
@@ -30,6 +32,9 @@ keywords:
   - open government data
   - Colombia
   - Bogotá
+  - Cali
+  - Cartagena
+  - ArcGIS REST
   - Socrata
   - SoQL
   - CKAN

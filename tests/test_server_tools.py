@@ -550,6 +550,7 @@ async def test_esri_service_info_returns_a_trimmed_description(monkeypatch, http
             "fields": [{"name": "OBJECTID", "type": "esriFieldTypeOID"}],
         },
     )
+    httpx_mock.add_response(url=EXAMPLE, json={"count": 11})
     out = await fn("city_esri_service_info")(city="bogota", resource_id=RESOURCE_UUID)
     assert out["name"] == "Estaciones"
     assert out["supports_statistics"] is True
@@ -654,3 +655,26 @@ async def test_a_refused_address_is_reported_as_policy_not_as_an_outage(monkeypa
 
     assert "error" in out and "non-public address" in out["error"]
     assert "network policy" in out["hint"]
+
+
+async def test_esri_service_info_reports_the_layer_feature_count(monkeypatch, httpx_mock):
+    """A few hundred features can be listed; forty thousand should be
+    aggregated. The model cannot tell which without being told."""
+    use_resource_fake(monkeypatch, "bogota", LAYER_URL)
+    httpx_mock.add_response(url=EXAMPLE, json={"name": "Capa", "fields": []})
+    httpx_mock.add_response(url=EXAMPLE, json={"count": 41234})
+    out = await fn("city_esri_service_info")(city="bogota", resource_id=RESOURCE_UUID)
+    assert out["feature_count"] == 41234
+
+
+async def test_a_layer_that_refuses_a_count_still_returns_its_schema(monkeypatch, httpx_mock):
+    """Losing the whole description because one optional extra failed would be
+    a worse answer than an incomplete one."""
+    use_resource_fake(monkeypatch, "bogota", LAYER_URL)
+    httpx_mock.add_response(url=EXAMPLE, json={"name": "Capa", "fields": []})
+    httpx_mock.add_response(
+        url=EXAMPLE, json={"error": {"code": 400, "message": "Failed to execute query."}}
+    )
+    out = await fn("city_esri_service_info")(city="bogota", resource_id=RESOURCE_UUID)
+    assert out["name"] == "Capa"
+    assert out["feature_count"] is None
