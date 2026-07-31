@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] — 2026-08-29
 
 Five portals, and two new ways to reach data no DataStore holds. **24 tools**
-(down from 28, covering twice the portals), 523 hermetic tests, 92% coverage.
+(down from 28, covering twice the portals), 532 hermetic tests, 34 live, 92%
+coverage.
 
 ### Added
 
@@ -51,6 +52,11 @@ Five portals, and two new ways to reach data no DataStore holds. **24 tools**
 - Tool descriptions now carry each portal's measured coverage, so a model can
   tell that Bogotá is thirty times larger than Cartagena but returns rows a
   third as often.
+- **Cali's published coverage figure was corrected from 75% to 67%.** The old
+  number came from a page-clustered sample; the new one is an exhaustive count
+  of all 657 datasets (440 carry a DataStore resource). The stress harness's
+  sampler was fixed at the same time — see below — because the same defect
+  produced both a 75% and a 46% estimate of the same quantity.
 
 ### Fixed
 
@@ -63,6 +69,27 @@ Five portals, and two new ways to reach data no DataStore holds. **24 tools**
   The client checks the body, never the status code alone.
 - A resource the Bogotá catalogue labels `ESRI REST` may be a zipped shapefile.
   Those are now refused with a message naming the tool that does read files.
+- **A CSV value containing a newline raised `_csv.Error` out of the tool.**
+  `io.StringIO` translates line endings before `csv.reader` sees them unless it
+  is given `newline=""`, and `_csv.Error` is not a `TabularError`, so it escaped
+  the error envelope entirely and reached the model as an opaque protocol error.
+  Two real Bogotá resources hit it; the stress harness is what found them. Any
+  parser error now becomes an envelope, and a CSV that breaks partway returns
+  the rows it managed to read.
+
+### Measurement
+
+- **The stress harness was sampling by whole pages, and a CKAN catalogue is not
+  randomly ordered.** Cali's 144 IDESC cartographic bundles — JPEG, RAR and WMS,
+  none of them a table — sit contiguously, so landing on two of those pages put
+  fifty unreadable datasets into a sample of 120. The harness reported 46%
+  coverage for a portal whose exhaustive count is 67%, and 75% on an earlier
+  seed: one defect, two wrong answers in opposite directions. It now takes a few
+  datasets from each of many pages instead of every dataset from a few, at the
+  same request budget.
+- `sample_ckan` also floored its page count, which capped Cartagena at 25 of its
+  38 datasets — the last 13 were unreachable whatever was asked for. Catalogues
+  smaller than the requested sample are now walked whole.
 
 ### Security
 

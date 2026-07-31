@@ -123,7 +123,7 @@ async def search_datasets(
     these in get_dataset / filter_dataset / aggregate_dataset). Every result
     carries a `queryable` flag saying whether that 4x4 answers the data API.
 
-    For city data use bogota_search_datasets or cali_search_datasets instead.
+    For territorial data use city_search_datasets instead.
     """
     try:
         raw = await _client.catalog_search(

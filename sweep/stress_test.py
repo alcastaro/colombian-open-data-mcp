@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import random
 import statistics
 import sys
@@ -59,7 +60,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from colombian_open_data_mcp import ckan, server, socrata  # noqa: E402
+from colombian_open_data_mcp import ckan, esri, server, socrata, tabular  # noqa: E402
 
 OUT_DIR = Path(__file__).resolve().parent / "out"
 REPORT_DIR = ROOT / "internal" / "reportes"
@@ -67,7 +68,7 @@ REPORT_DIR = ROOT / "internal" / "reportes"
 # Catalogue sizes, refreshed at run time. These are only fallbacks for the
 # random-offset draw if the count call itself fails.
 FALLBACK_NATIONAL = 8391
-FALLBACK_CKAN = {"bogota": 1917, "cali": 657}
+FALLBACK_CKAN = {"bogota": 1917, "cali": 657, "valle": 50, "cartagena": 38}
 
 # Formats a hypothetical download-and-parse layer could read. Used to size the
 # gap honestly: the rest is geospatial and no CSV parser would help.
@@ -95,6 +96,10 @@ class Probe:
     rows_available: int | None = None
     columns: int | None = None
     row_sample_ok: bool = False
+    # Which of the three avenues actually delivered readable rows, if any.
+    # Recorded so the headline coverage figure can be broken down rather than
+    # being an opaque number that grew when new tools landed.
+    avenue: str = ""
 
 
 def classify(result: Any) -> tuple[str, str]:
@@ -207,17 +212,29 @@ def _tool(name: str):
 
 
 async def probe_ckan(portal: ckan.CkanPortal, pkg: dict) -> Probe:
-    """Walk one city dataset: metadata, then rows from a queryable resource."""
-    pre = portal.prefix
+    """Walk one territorial dataset through every avenue until one returns rows.
+
+    The order is deliberate and is the same one a model should follow: the
+    DataStore first, because it is a typed query against a table the portal
+    already built; then the ESRI service, because it is still an API and still
+    transfers nothing but the answer; and only then the published file, which
+    is a download. Each step stops as soon as rows come back, so the polite
+    order and the fast order are the same order.
+
+    `avenue` records which one delivered, so the headline number can be broken
+    down. A coverage figure that rose because new tools landed, without saying
+    which tool did the work, would be a number nobody could check.
+    """
+    city = portal.key
     p = Probe(
         portal=portal.host,
-        prefix=pre,
+        prefix=city,
         city=portal.city,
         dataset_id=pkg.get("name") or pkg.get("id", ""),
         title=(pkg.get("title") or "")[:90],
     )
 
-    meta = await timed(p, f"{pre}_get_dataset", _tool(f"{pre}_get_dataset")(id=p.dataset_id))
+    meta = await timed(p, "city_get_dataset", _tool("city_get_dataset")(city=city, id=p.dataset_id))
     if not isinstance(meta, dict) or "error" in meta:
         return p
 
@@ -226,32 +243,77 @@ async def probe_ckan(portal: ckan.CkanPortal, pkg: dict) -> Probe:
     p.n_queryable = sum(1 for r in resources if r.get("queryable"))
     p.formats = [r.get("format") or "?" for r in resources]
 
+    # ── Avenue 1: the CKAN DataStore ─────────────────────────────────────────
     target = next((r for r in resources if r.get("queryable")), None)
     if target is None:
         # Not a failure of the server — the portal never pushed this one into
         # the DataStore. Recorded distinctly so it does not pollute error rates.
-        p.steps[f"{pre}_resource_preview"] = "no-datastore"
-        return p
+        p.steps["city_resource_preview"] = "no-datastore"
+    else:
+        prev = await timed(
+            p,
+            "city_resource_preview",
+            _tool("city_resource_preview")(city=city, resource_id=target["id"], rows=2),
+        )
+        if isinstance(prev, dict) and "error" not in prev and prev.get("rows"):
+            p.row_sample_ok = True
+            p.avenue = "datastore"
+            p.rows_available = prev.get("total_rows_matching")
+            p.columns = len(prev.get("fields") or [])
 
-    prev = await timed(
-        p,
-        f"{pre}_resource_preview",
-        _tool(f"{pre}_resource_preview")(resource_id=target["id"], rows=2),
+            fields = [f["name"] for f in (prev.get("fields") or []) if f.get("name") != "_id"]
+            if fields:
+                await timed(
+                    p,
+                    "city_filter_resource",
+                    _tool("city_filter_resource")(
+                        city=city, resource_id=target["id"], columns=fields[:2], limit=2
+                    ),
+                )
+            return p
+
+    # ── Avenue 2: an ArcGIS REST service ─────────────────────────────────────
+    service = next(
+        (
+            r
+            for r in resources
+            if "ESRI" in (r.get("format") or "").upper() and esri.is_layer_url(r.get("url") or "")
+        ),
+        None,
     )
-    if isinstance(prev, dict) and "error" not in prev:
-        p.row_sample_ok = bool(prev.get("rows"))
-        p.rows_available = prev.get("total_rows_matching")
-        p.columns = len(prev.get("fields") or [])
+    if service is not None:
+        rows = await timed(
+            p,
+            "city_esri_query",
+            _tool("city_esri_query")(city=city, resource_id=service["id"], limit=2),
+        )
+        if isinstance(rows, dict) and "error" not in rows and rows.get("rows"):
+            p.row_sample_ok = True
+            p.avenue = "esri"
+            p.columns = len(rows.get("fields") or [])
+            return p
 
-        fields = [f["name"] for f in (prev.get("fields") or []) if f.get("name") != "_id"]
-        if fields:
-            await timed(
-                p,
-                f"{pre}_filter_resource",
-                _tool(f"{pre}_filter_resource")(
-                    resource_id=target["id"], columns=fields[:2], limit=2
-                ),
-            )
+    # ── Avenue 3: a published file ───────────────────────────────────────────
+    readable = next(
+        (
+            r
+            for r in resources
+            if tabular.classify_format(r.get("format"), r.get("url") or "")
+            in tabular.READABLE_FORMATS
+        ),
+        None,
+    )
+    if readable is not None:
+        rows = await timed(
+            p,
+            "city_read_resource_file",
+            _tool("city_read_resource_file")(city=city, resource_id=readable["id"], rows=2),
+        )
+        if isinstance(rows, dict) and "error" not in rows and rows.get("rows"):
+            p.row_sample_ok = True
+            p.avenue = "archivo"
+            p.columns = len(rows.get("columns") or [])
+
     return p
 
 
@@ -275,22 +337,26 @@ async def catalogue_size_ckan(key: str) -> int:
 
 
 async def sample_national(n: int, rng: random.Random) -> list[dict]:
-    """Draw n datasets from random offsets across the whole catalogue.
+    """Draw n datasets spread across the whole Socrata catalogue.
 
-    Page size is 25 rather than 1 so a sample of 150 costs 6 requests, not 150.
-    Offsets are drawn without replacement at page granularity.
+    Spread the same way ``sample_ckan`` is, and for the same reason: a
+    catalogue's ordering correlates with what its datasets contain, so taking
+    whole consecutive pages measures the ordering as much as the catalogue.
     """
     size = await catalogue_size_national()
     page = 25
-    pages = max(1, size // page)
-    offsets = rng.sample(range(pages), k=min(pages, (n // page) + 2))
+    pages = max(1, math.ceil(size / page))
+    offsets = rng.sample(range(pages), k=min(pages, max(n // 5, 8)))
+    per_page = max(1, math.ceil(n / len(offsets)))
     out: list[dict] = []
     for off in offsets:
         try:
             raw = await server._client.catalog_search(limit=page, offset=off * page)
         except socrata.SocrataError:
             continue
-        out.extend(raw.get("results") or [])
+        results = raw.get("results") or []
+        rng.shuffle(results)
+        out.extend(results[:per_page])
         await asyncio.sleep(0.25)
         if len(out) >= n:
             break
@@ -299,17 +365,49 @@ async def sample_national(n: int, rng: random.Random) -> list[dict]:
 
 
 async def sample_ckan(key: str, n: int, rng: random.Random) -> list[dict]:
+    """Draw n datasets spread across the catalogue, or all of it if smaller.
+
+    **This function had a clustering defect worth describing, because the number
+    it produced was wrong in a way that looked plausible.** It drew random page
+    offsets and then took all 25 datasets on each page. A CKAN catalogue is not
+    randomly ordered: Cali's 144 IDESC cartographic bundles — JPEG, RAR and WMS,
+    none of them a table — sit contiguously, so landing on two of those pages
+    put fifty unreadable datasets into a sample of a hundred and twenty. The
+    harness reported 45.8% coverage for a portal whose whole catalogue, counted
+    exhaustively, carries a DataStore resource on 440 of 657 datasets — 67%.
+
+    Neither figure was a lie and the sample was genuinely random; it was random
+    over *pages*, and the thing being measured varies by page. So the fix is to
+    spread the draw: take a few datasets from many pages rather than every
+    dataset from a few. Same request budget, an estimate that tracks the
+    population instead of the catalogue's ordering.
+
+    The page count also used to floor, which quietly capped Cartagena at 25 of
+    its 38 datasets — one page by that arithmetic, and the last 13 unreachable
+    whatever was asked for. Valle happened to work only because 50 divides into
+    two whole pages. Both are small enough to walk entirely, and walking them
+    entirely is a better measurement than sampling them.
+    """
     size = await catalogue_size_ckan(key)
     page = 25
-    pages = max(1, size // page)
-    offsets = rng.sample(range(pages), k=min(pages, (n // page) + 2))
+    pages = max(1, math.ceil(size / page))
+
+    if n >= size:  # small catalogue: take all of it
+        offsets, per_page = list(range(pages)), page
+    else:
+        # Aim for ~5 datasets from each of as many pages as the budget allows.
+        offsets = rng.sample(range(pages), k=min(pages, max(n // 5, 8)))
+        per_page = max(1, math.ceil(n / len(offsets)))
+
     out: list[dict] = []
     for off in offsets:
         try:
             body = await server._ckan_clients[key].package_search(rows=page, start=off * page)
         except ckan.CkanError:
             continue
-        out.extend(body.get("results") or [])
+        results = body.get("results") or []
+        rng.shuffle(results)
+        out.extend(results[:per_page])
         await asyncio.sleep(0.35)
         if len(out) >= n:
             break
@@ -368,7 +466,13 @@ NATIONAL_STEPS = [
     "aggregate_dataset",
     "filter_dataset",
 ]
-CITY_STEPS = ["get_dataset", "resource_preview", "filter_resource"]
+CITY_STEPS = [
+    "city_get_dataset",
+    "city_resource_preview",
+    "city_filter_resource",
+    "city_esri_query",
+    "city_read_resource_file",
+]
 
 NATIONAL_HOST = "datos.gov.co"
 
@@ -394,37 +498,67 @@ def build_report(by_portal: dict[str, list[Probe]], meta: dict) -> str:
     )
     A("")
     A(
-        "La muestra se toma en desplazamientos aleatorios a lo largo de todo el "
-        "catálogo, no de los primeros N resultados. La distinción no es cosmética: "
-        "los primeros 100 datasets de Bogotá son casi todos geoespaciales, y "
-        "medir ahí daba una cobertura de DataStore del 9% en vez del ~27% real."
+        "La muestra se reparte a lo largo de todo el catálogo — unos pocos "
+        "conjuntos de cada una de muchas páginas — y no se toma ni de los "
+        "primeros N resultados ni de páginas completas. Las dos formas cortas "
+        "han dado cifras equivocadas aquí: los primeros 100 datasets de Bogotá "
+        "son casi todos geoespaciales, y una página al azar tampoco sirve, "
+        "porque el orden de un catálogo CKAN se correlaciona con lo que "
+        "contienen sus conjuntos — los 144 paquetes cartográficos del IDESC de "
+        "Cali están contiguos, y muestrear por páginas enteras reportó un 46% "
+        "de cobertura para un portal cuyo conteo exhaustivo da 67%."
     )
     A("")
 
     # ── Headline
     A("## Resumen")
     A("")
-    A("| Portal | Plataforma | Muestra | Devolvió filas reales | Tasa |")
-    A("|---|---|---|---|---|")
+    A(
+        "| Portal | Plataforma | Muestra | Devolvió filas reales | Tasa | DataStore | ESRI | Archivo |"
+    )
+    A("|---|---|---|---|---|---|---|---|")
     for host in sorted(by_portal, key=lambda h: (h != NATIONAL_HOST, h)):
         probes = by_portal[host]
         ok = sum(1 for p in probes if p.row_sample_ok)
         platform = "Socrata" if host == NATIONAL_HOST else "CKAN"
-        A(f"| `{host}` | {platform} | {len(probes)} | {ok} | **{pct(ok, len(probes))}** |")
+        by_avenue = Counter(p.avenue for p in probes if p.row_sample_ok)
+        A(
+            f"| `{host}` | {platform} | {len(probes)} | {ok} | **{pct(ok, len(probes))}** "
+            f"| {by_avenue.get('datastore', 0) or '—'} | {by_avenue.get('esri', 0) or '—'} "
+            f"| {by_avenue.get('archivo', 0) or '—'} |"
+        )
     A("")
     A(
         "«Devolvió filas reales» es la prueba dura: el MCP entregó datos que el "
-        "modelo puede leer, no solo metadatos. En los portales CKAN esta cifra "
-        "está limitada por el portal, no por el servidor — ver la cobertura de "
-        "DataStore más abajo."
+        "modelo puede leer, no solo metadatos. Las tres últimas columnas dicen "
+        "**por qué vía** llegaron, y esa desagregación es deliberada: una cifra "
+        "de cobertura que sube cuando se añaden herramientas, sin decir cuál "
+        "hizo el trabajo, no es un número que nadie pueda comprobar."
     )
     A("")
+    A(
+        "El orden de intento es DataStore → servicio ESRI → archivo publicado, y "
+        "se detiene en la primera que devuelve filas. Es a la vez el orden "
+        "cortés y el rápido: el DataStore es una consulta tipada contra una "
+        "tabla que el portal ya construyó, ESRI sigue siendo una API que no "
+        "transfiere más que la respuesta, y solo el archivo implica una descarga."
+    )
+    A("")
+    ckan_probes = {h: v for h, v in by_portal.items() if h != NATIONAL_HOST}
+    if ckan_probes:
+        worst = min(
+            (sum(1 for p in v if p.row_sample_ok) / len(v), h) for h, v in ckan_probes.items()
+        )
+        A(
+            f"Portal CKAN con menor cobertura: `{worst[1]}` con "
+            f"**{100 * worst[0]:.1f}%**. El objetivo de v0.4.0 era ≥60% en todos."
+        )
+        A("")
 
     for host in sorted(by_portal, key=lambda h: (h != NATIONAL_HOST, h)):
         probes = by_portal[host]
         is_national = host == NATIONAL_HOST
-        prefix = "" if is_national else probes[0].prefix
-        steps = NATIONAL_STEPS if is_national else [f"{prefix}_{suffix}" for suffix in CITY_STEPS]
+        steps = NATIONAL_STEPS if is_national else CITY_STEPS
         title = "Portal nacional" if is_national else probes[0].city or host
 
         A(f"## {title} — `{host}`")
@@ -460,11 +594,9 @@ def build_report(by_portal: dict[str, list[Probe]], meta: dict) -> str:
             f"| Recursos individuales marcados consultables | "
             f"{res_query} / {res_total} — **{pct(res_query, res_total)}** |"
         )
-        lying = sum(1 for p in probes if p.steps.get(f"{prefix}_resource_preview") == "http-404")
+        lying = sum(1 for p in probes if p.steps.get("city_resource_preview") == "http-404")
         tried = sum(
-            1
-            for p in probes
-            if p.steps.get(f"{prefix}_resource_preview") not in (None, "no-datastore")
+            1 for p in probes if p.steps.get("city_resource_preview") not in (None, "no-datastore")
         )
         if tried:
             A(

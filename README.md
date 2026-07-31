@@ -6,10 +6,12 @@
 
 # colombian-open-data-mcp
 
-**MCP server for Colombia's open government data — three portals, two
-platforms: the national [datos.gov.co](https://www.datos.gov.co) (Socrata,
-8,391 datasets), [Bogotá](https://datosabiertos.bogota.gov.co) (CKAN, ~1,900)
-and [Cali](https://datos.cali.gov.co) (CKAN, 657).**
+**MCP server for Colombia's open government data — five portals, three data
+sources: the national [datos.gov.co](https://www.datos.gov.co) (Socrata, 8,391
+datasets), [Bogotá](https://datosabiertos.bogota.gov.co) (CKAN, ~1,900),
+[Cali](https://datos.cali.gov.co) (657),
+[Valle del Cauca](https://datosabiertos.valledelcauca.gov.co) (50) and
+[Cartagena](https://datosabiertos.cartagena.gov.co) (38).**
 
 The first MCP server for Colombian open data that installs and runs **on your
 own machine** — no gateway, no intermediary, no account. It connects any
@@ -17,32 +19,55 @@ MCP-compatible assistant (Claude Desktop, Claude Code, Cursor, VS Code Copilot,
 Gemini CLI) straight to the catalogues and the live data, with filtering and
 aggregation executed by the portals themselves rather than by the model.
 
-**28 tools · 281 hermetic tests · 18 live tests · MIT**
+**24 tools · 529 hermetic tests · 34 live tests · 92% coverage · MIT**
 
 ---
 
-## Why two portals, and why they are not interchangeable
+## Why the platforms are not interchangeable
 
 Colombia's national portal runs **Socrata**, which makes it unusual in Latin
 America — Argentina, Chile, Mexico, Uruguay and the Dominican Republic all run
 CKAN. Socrata ships a real query language, **SoQL**, so `WHERE`, `GROUP BY`,
 `count()` and `sum()` all run on the server and only the rolled-up rows travel.
 
-The two city portals run **CKAN 2.10.4**. Their DataStore supports typed
-filtering, but neither exposes `datastore_search_sql` — verified against both
-live APIs, where Bogotá answers 400 (the action is unregistered, and a WAF
-separately blocks the GET form) and Cali answers 403.
+The four territorial portals run **CKAN**. Their DataStore supports typed
+filtering, but **none exposes `datastore_search_sql`** — verified against all
+four live APIs, where Bogotá answers 400 (the action is unregistered, and a WAF
+separately blocks the GET form), Cali answers 403, and Valle and Cartagena
+answer 400.
 
 That difference is real, so this server exposes it rather than papering over
-it. There is an `aggregate_dataset` for the national portal and **no city
-equivalent**, because offering one would advertise something those portals
-cannot do. A live test asserts the absence for each; if either ever enables
-SQL, the build says so.
+it. There is an `aggregate_dataset` for the national portal and **no DataStore
+equivalent for the cities**, because offering one would advertise something
+those portals cannot do. A live test asserts the absence on each; if any ever
+enables SQL, the build says so.
 
-For the same reason the families are separate tools rather than one tool with a
-`portal` switch: Socrata identifiers are 4x4 codes (`abcd-1234`), CKAN
+The Socrata and CKAN families stay separate rather than folding into one tool
+with a `portal` switch: Socrata identifiers are 4x4 codes (`abcd-1234`), CKAN
 identifiers are UUIDs or slugs, and a shared parameter would have to branch its
 validation — and identifier validation is the defence against URL injection.
+Between the four CKAN portals none of that applies, which is why those *did*
+collapse into a single `city` parameter in 0.4.
+
+## Three ways into the data
+
+A Colombian territorial catalogue publishes the same dataset in several forms,
+and only one of them is a database table. This server reads all three, in the
+order a model should try them:
+
+1. **The CKAN DataStore** — a typed query against a table the portal already
+   built. Nothing is transferred but the answer.
+2. **ArcGIS REST services** — 334 of Bogotá's 1,917 datasets are published as
+   ESRI layers. These are APIs, not files: they filter, project, paginate, and
+   **compute GROUP BY on the server**. `city_esri_aggregate` is the only
+   territorial rollup here that is not summed over rows in the model's context.
+3. **The published file** — a CSV, XLSX, JSON or GeoJSON at a download URL, for
+   the datasets that have no table and no service. Streamed under a 12 MB cap,
+   parsed, answered, discarded. Nothing is cached and nothing touches disk.
+
+That third avenue is what the sibling Dominican server does for its *whole*
+catalogue, because `datos.gob.do` runs CKAN with no DataStore extension at all.
+Here it is the last resort, which is why it costs a fraction of the code.
 
 ## Tools
 
@@ -63,61 +88,72 @@ validation — and identifier validation is the defence against URL injection.
 | `aggregate_dataset` | Typed GROUP BY + count / sum / avg / median / min / max / stddev. |
 | `query_dataset_soql` | Power-user escape hatch: raw SoQL, read-only, validated. |
 
-### City portals — Bogotá and Cali (8 each)
+### Territorial portals — one family, four catalogues (12)
 
-| Tool (per city) | What it does |
+Every tool below takes a `city` parameter: `bogota`, `cali`, `valle` or
+`cartagena`.
+
+| Tool | What it does |
 |---|---|
-| `<city>_search_datasets` | Catalogue search, filterable by organization, group or tag. |
-| `<city>_get_dataset` | Full metadata and every resource, each flagged `queryable`. |
-| `<city>_list_organizations` | City entities that publish, with dataset counts. |
-| `<city>_list_groups` | Thematic groups. |
-| `<city>_list_tags` | Portal tags. |
-| `<city>_get_site_stats` | Portal totals, and what the DataStore can and cannot do. |
-| `<city>_resource_preview` | First N rows of a DataStore-backed resource, with column types. |
-| `<city>_filter_resource` | Typed server-side filter, projection and sort. |
+| `city_search_datasets` | Catalogue search, filterable by organization, group or tag. |
+| `city_get_dataset` | Full metadata and every resource, each flagged `queryable`. |
+| `city_list_organizations` | Entities that publish, with dataset counts. |
+| `city_list_groups` | Thematic groups. |
+| `city_list_tags` | Portal tags. |
+| `city_get_site_stats` | Portal totals, and what the DataStore can and cannot do. |
+| `city_resource_preview` | First N rows of a DataStore-backed resource, with column types. |
+| `city_filter_resource` | Typed server-side filter, projection and sort. |
+| `city_esri_service_info` | Fields and capabilities of an ArcGIS REST layer. |
+| `city_esri_query` | Rows from an ArcGIS layer, filtered and paginated server-side. |
+| `city_esri_aggregate` | **Server-side GROUP BY** on an ArcGIS layer. |
+| `city_read_resource_file` | Download and parse a published CSV / XLSX / JSON resource. |
 
-`<city>` is `bogota` or `cali`. Both portals run CKAN 2.10.4 and the eight
-tools are generated from one definition, so their shapes are identical — a test
-asserts that. Neither has an aggregation tool, because neither portal exposes
-`datastore_search_sql`.
+Through 0.3 each portal had its own family of eight prefixed tools. Four
+portals that way would be thirty-two near-identical schemas, so 0.4 collapsed
+them: twelve tools covering twice the ground, and a fifth portal is now a
+descriptor and nothing else.
 
 ## What each portal can and cannot answer
 
-These figures come from running the actual tools against 450 randomly sampled
-datasets — 150 per portal, seed 31337 (`sweep/stress_test.py`) — not from
-reading documentation:
+These figures come from running the actual tools against a random sample —
+`sweep/stress_test.py --total 600 --seed 60606` — not from reading
+documentation. Valle del Cauca and Cartagena are small enough that their whole
+catalogues were walked rather than sampled.
 
-| | datos.gov.co | Bogotá | Cali |
-|---|---|---|---|
-| Platform | Socrata | CKAN 2.10.4 | CKAN 2.10.4 |
-| Filter server-side | yes | yes | yes |
-| **Aggregate server-side** | **yes** | no | no |
-| Datasets that returned real rows | **100%** | **27%** | **75%** |
+| Portal | Plataforma | Muestra | Devolvió filas reales | Tasa | DataStore | ESRI | Archivo |
+|---|---|---|---|---|---|---|---|
+| `datos.gov.co` | Socrata | 120 | 119 | **99.2%** | — | — | — |
+| `datos.cali.gov.co` | CKAN | 120 | 74 | **61.7%** | 74 | — | — |
+| `datosabiertos.bogota.gov.co` | CKAN | 120 | 105 | **87.5%** | 20 | 21 | 64 |
+| `datosabiertos.cartagena.gov.co` | CKAN | 38 | 38 | **100.0%** | 37 | — | 1 |
+| `datosabiertos.valledelcauca.gov.co` | CKAN | 50 | 50 | **100.0%** | 50 | — | — |
 
-Across all 1,355 tool calls in that run, **not one raised an exception** — every
+The three rightmost columns say **which avenue** delivered the rows. That
+breakdown is deliberate: a coverage number that rises when new tools land,
+without saying which tool did the work, is not a number anyone can check.
+
+Bogotá is the portal this release was aimed at, and the shape of its catalogue
+explains why. Only about a quarter of its datasets sit in the DataStore, and the
+catalogue's own `datastore_active` flag is unreliable on top of that — of 80
+resources measured carrying the flag, 27 answered HTTP 404 because no table
+exists. The server rewrites that 404 into an explanation naming the portal's
+metadata as the cause, so a model is told the catalogue was wrong instead of
+assuming it made a mistake. `city_get_dataset` marks every resource
+`queryable: true/false`; treat it as a hint, not a promise.
+
+What closes the gap is that the rest of the catalogue is not missing, only
+published differently — as ArcGIS services and as plain files. Reading both is
+what took Bogotá from 27% to the mid-eighties.
+
+Across every tool call in that run, **not one raised an exception** — every
 failure arrived as an error envelope the model can act on.
 
-For the CKAN portals the last row of the table is a property of the portal, not
-of this server. Two things cause it. Most of each catalogue is published as files
-rather than through the DataStore — heavily geospatial in Bogotá's case (SHP,
-GPKG, GEOJSON, DXF, KML, the IDECA layers). And the catalogue's own
-`datastore_active` flag is unreliable: of 80 resources measured that carried
-it, 27 answered HTTP 404 because no table exists. The server rewrites that 404
-into an explanation naming the portal's metadata as the cause, so a model is
-told the catalogue was wrong instead of assuming it made a mistake.
+### What is still out of reach
 
-`<city>_get_dataset` marks every resource `queryable: true/false`. Treat it as a
-hint, not a promise.
-
-About 9% of Bogotá's resources are queryable **services** rather than files —
-ESRI REST, WFS and WMS endpoints that accept `?query=`, support pagination and,
-in the ESRI case, statistics. Reading those needs no download at all, and it is
-the highest-value coverage work still open.
-
-This server deliberately does **not** download resource files. Doing so would
-mean roughly 750 more lines plus an SSRF guard, and the CSV/XLSX parsers it
-would bring could not read SHP or GPKG anyway — so the gap would stay almost as
-wide. See `CHANGELOG.md` for the full reasoning.
+Genuinely geospatial archives — SHP, GPKG, DXF, KML, DWG — are refused with an
+explanation rather than parsed badly. Reading them would need a GIS stack this
+server has no business carrying, and where a dataset publishes an ESRI service
+alongside its shapefile, the service already answers the question.
 
 ## Install
 
@@ -157,20 +193,45 @@ Ask your assistant, in Spanish or English:
 > Filtra el recurso de casos de Bogotá por localidad Bosa y muéstrame las
 > primeras 20 filas.
 
+> Cuenta cuántos parques hay por localidad en la capa ESRI de Bogotá — que lo
+> agrupe el servidor, no tú.
+
+> Ese dataset de Bogotá no está en el DataStore. Lee el archivo publicado y
+> muéstrame las columnas.
+
+> ¿Qué publica el portal de Cartagena y qué de eso se puede consultar?
+
 ## Design notes
 
-**Socrata and CKAN are the query engines.** Neither portal needs a local cache,
-a DuckDB layer or a download step, because both execute the query themselves.
-The sibling [`dominican-open-data-mcp`](https://github.com/alcastaro/datos.gob.do-MCP-server)
-carries about 4,500 lines of caching, parsing and link-repair machinery that a
-CKAN portal without a DataStore forces on you. This one does not need them,
-which is why it covers 28 tools in far less code. Fewer lines here is the
-result of a better substrate, not a thinner product.
+**The portals are the query engines, wherever possible.** Socrata runs SoQL,
+CKAN's DataStore runs typed filters, and ArcGIS computes statistics — so three
+of the four data paths transfer only the answer. The sibling
+[`dominican-open-data-mcp`](https://github.com/alcastaro/datos.gob.do-MCP-server)
+carries about 4,500 lines of caching, parsing and link-repair machinery,
+because `datos.gob.do` runs CKAN with **no DataStore at all** and every row it
+serves has to come out of a downloaded file. This server needs a download for
+the last resort only, and needs no cache for any of it.
+
+**Nothing is stored.** `city_read_resource_file` streams under a cap, parses the
+first rows, answers and discards the bytes. That is a deliberate limit as much
+as a design choice: persisting these datasets would make this server a
+*responsable del tratamiento* under Ley 1581 de 2012 for any of them containing
+identifiable people. That is a decision to take explicitly and separately, not
+to acquire as a side effect of a performance optimisation.
+
+**No tool accepts a URL.** The ESRI and file tools take a resource UUID and look
+the address up through the portal's own catalogue, so the set of hosts this
+server can reach is bounded by what a Colombian government catalogue publishes.
+On top of that, `netguard.py` requires every resolved address to be globally
+routable — refusing loopback, RFC-1918, IPv6 unique-local and the cloud metadata
+endpoint at `169.254.169.254` — and is installed as an httpx request hook so
+redirect hops are checked too. See **[SECURITY.md](SECURITY.md)**, whose "No
+SSRF surface" section was **removed in 0.4 because it stopped being true**.
 
 **Every tool returns, none raises.** A portal outage arrives as
 `{"error": ..., "hint": ...}` — an exception escaping a tool would reach the
 model as an opaque protocol error it cannot act on. A parameterised test
-asserts this for all 28, and the stress harness confirms it against the live
+asserts this for all 24, and the stress harness confirms it against the live
 catalogues: zero raised exceptions across thousands of real calls.
 
 **Transient failures are retried; definitive ones are not.** A dropped
@@ -189,16 +250,21 @@ multi-statement queries. See **[SECURITY.md](SECURITY.md)**.
 
 ```bash
 uv sync --group dev --extra dev
-uv run pytest                                  # 281 hermetic tests, 85% coverage floor
-uv run ruff check src/ tests/
+uv run pytest                                  # 529 hermetic tests, 85% coverage floor
+uv run ruff check src/ tests/ sweep/
 uv run mypy src/colombian_open_data_mcp/
-RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 18 live tests, opt-in
-uv run python sweep/stress_test.py             # 450 random datasets, all three portals
+RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 34 live tests, opt-in
+uv run python sweep/stress_test.py --total 600 --seed 60606   # all five portals
 ```
 
-Live tests never run in CI. Both portals are third-party infrastructure and
+Live tests never run in CI. All five portals are third-party infrastructure and
 Bogotá's sits behind a WAF; a build that goes red because someone else's rate
 limiter had a bad minute is a build people learn to ignore.
+
+The stress harness is not a test — it is an occasional measurement against live
+catalogues, and it is deliberately polite: concurrency 4, a delay between
+probes, and an avenue order that tries the cheapest request first. Do not raise
+the concurrency to go faster.
 
 See **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
@@ -227,7 +293,9 @@ about what each one is:
   rather than overlap it.
 
 This one is the Colombia-specific, whole-portal, locally installable option,
-and as far as we can tell the only one covering Bogotá's city catalogue.
+and as far as we can tell the only one covering Colombia's territorial
+catalogues — Bogotá, Cali, Valle del Cauca and Cartagena — alongside the
+national portal.
 
 ## Licence
 

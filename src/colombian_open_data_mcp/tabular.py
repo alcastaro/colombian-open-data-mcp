@@ -234,19 +234,38 @@ def parse_csv(data: bytes, rows: int) -> dict[str, Any]:
         delimiter = dialect.delimiter
     except csv.Error:
         dialect, delimiter = csv.excel, ","
-    reader = csv.reader(io.StringIO(text), dialect)
+    # `newline=""` is not optional and its absence was a real bug. Without it
+    # StringIO translates line endings before the csv module sees them, so a
+    # value containing an embedded newline — which two Bogotá resources have —
+    # raises `_csv.Error: new-line character seen in unquoted field`. That is
+    # the documented way to hand text to csv.reader; the stress harness found
+    # the two files that prove it.
+    reader = csv.reader(io.StringIO(text, newline=""), dialect)
     try:
         header = next(reader)
     except StopIteration:
         raise TabularError("The file is empty.") from None
+    except csv.Error as e:
+        raise TabularError(f"This file is not readable as delimited text: {e}") from e
     out: list[dict[str, Any]] = []
     total = 0
-    for record in reader:
-        total += 1
-        if len(out) < rows:
-            out.append(
-                {(header[i] if i < len(header) else f"col_{i}"): v for i, v in enumerate(record)}
-            )
+    try:
+        for record in reader:
+            total += 1
+            if len(out) < rows:
+                out.append(
+                    {
+                        (header[i] if i < len(header) else f"col_{i}"): v
+                        for i, v in enumerate(record)
+                    }
+                )
+    except csv.Error as e:
+        # Malformed rows are common in published data and must never escape as
+        # an exception: a tool that raises reaches the model as an opaque
+        # protocol error. Whatever was read before the break is still returned.
+        if not out:
+            raise TabularError(f"This file is not readable as delimited text: {e}") from e
+        logger.warning("stopped reading a malformed CSV after %d rows: %s", total, e)
     return {
         "format": "csv",
         "delimiter": delimiter,
@@ -258,7 +277,7 @@ def parse_csv(data: bytes, rows: int) -> dict[str, Any]:
     }
 
 
-def parse_excel(data: bytes, rows: int) -> dict[str, Any]:
+def parse_excel(data: bytes, rows: int, truncated: bool = False) -> dict[str, Any]:
     """First ``rows`` records of the first worksheet.
 
     Read-only and values-only: formulas are not evaluated and styling is not
@@ -272,10 +291,16 @@ def parse_excel(data: bytes, rows: int) -> dict[str, Any]:
     try:
         book = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception as e:
+        if truncated:
+            raise TabularError(
+                f"This workbook is larger than the {MAX_BYTES:,}-byte download cap, so "
+                "only part of it arrived. An .xlsx file is a zip archive and cannot be "
+                "opened from a prefix. If the dataset also publishes a CSV, that one "
+                "reads fine truncated."
+            ) from e
         raise TabularError(
-            f"Could not open this file as a workbook ({type(e).__name__}). It may be "
-            "the older .xls format, which openpyxl does not read, or truncated by the "
-            "download cap."
+            f"Could not open this file as a workbook ({type(e).__name__}). It is most "
+            "likely the older .xls format, which openpyxl does not read."
         ) from e
     try:
         sheet = book.worksheets[0]
@@ -311,7 +336,7 @@ def parse_excel(data: bytes, rows: int) -> dict[str, Any]:
         book.close()
 
 
-def parse_json(data: bytes, rows: int) -> dict[str, Any]:
+def parse_json(data: bytes, rows: int, truncated: bool = False) -> dict[str, Any]:
     """First ``rows`` records of a JSON array, or of a GeoJSON feature collection.
 
     GeoJSON geometry is dropped for the same reason the ESRI client never asks
@@ -322,6 +347,17 @@ def parse_json(data: bytes, rows: int) -> dict[str, Any]:
     try:
         body = json.loads(data.decode(encoding, errors="replace"))
     except ValueError as e:
+        if truncated:
+            # Measured on Bogotá's structural-ecology layer: the parse failed at
+            # character 12,572,463, which is the byte cap, not the file. Saying
+            # "not valid JSON" there blames the publisher for a cut this server
+            # made, and sends a model looking for a defect that does not exist.
+            raise TabularError(
+                f"This JSON file is larger than the {MAX_BYTES:,}-byte download cap, so "
+                "only part of it arrived and it cannot be parsed. JSON has to be read "
+                "whole. If the dataset also publishes a CSV or an ESRI REST service, "
+                "those can be read in pages."
+            ) from e
         raise TabularError(f"The file is not valid JSON: {e}") from e
 
     geometry_dropped = False
@@ -399,10 +435,15 @@ async def read_resource_file(
             "retrievable."
         )
 
+    # `truncated` is threaded into the parsers rather than only reported after,
+    # because it changes what a parse failure *means*. CSV reads fine from a
+    # prefix — a truncated file just has fewer rows. JSON and XLSX cannot: one
+    # needs its closing brace and the other is a zip archive. Without this the
+    # error blamed the publisher for a cut this server made.
     if kind in EXCEL_FORMATS:
-        result = parse_excel(data, rows)
+        result = parse_excel(data, rows, truncated)
     elif kind in JSON_FORMATS:
-        result = parse_json(data, rows)
+        result = parse_json(data, rows, truncated)
     else:
         result = parse_csv(data, rows)
 

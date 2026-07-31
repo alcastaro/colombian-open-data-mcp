@@ -91,9 +91,13 @@ async def test_live_city_catalogue_is_reachable(city):
     stats = await city.site_stats()
     assert stats["platform"] == "ckan"
     assert stats["city"] == city.portal.city
-    assert (stats["total_datasets"] or 0) > 100
+    # Valle publishes 50 datasets and Cartagena 38, so the old floor of 100
+    # would have failed on two real portals. The point of the assertion is that
+    # a catalogue came back at all, not that it is large.
+    assert (stats["total_datasets"] or 0) >= 20
     assert stats["datastore_sql_available"] is False
-    assert f"{city.portal.prefix}_filter_resource" in stats["datastore_note"]
+    assert "city_filter_resource" in stats["datastore_note"]
+    assert city.portal.key in stats["datastore_note"]
 
 
 async def test_live_city_search_returns_datasets(city):
@@ -149,13 +153,89 @@ async def test_live_city_datastore_returns_typed_rows(city):
 async def test_live_city_has_no_sql_endpoint(city):
     """The absence this whole design rests on — asserted, not assumed.
 
-    Bogotá answers 400 (action unregistered) and Cali 403 (a guard in front of
-    it). Different mechanisms, identical consequence: no server-side GROUP BY,
-    therefore no aggregation tool. If either portal ever enables it, this test
-    fails and that is the signal to add one.
+    Bogotá answers 400 (action unregistered), Cali 403 (a guard in front of it),
+    Valle and Cartagena 400. Different mechanisms, identical consequence: no
+    server-side GROUP BY on any of the four, therefore no DataStore aggregation
+    tool. If any portal ever enables it, this test fails and that is the signal
+    to add one.
     """
     with pytest.raises(ckan.CkanError):
         await city.action("datastore_search_sql", {"sql": "SELECT 1"})
+
+
+async def test_live_city_reports_the_ckan_release_the_descriptor_claims(city):
+    """Cartagena runs CKAN 2.11.3 while the other three run 2.10.4.
+
+    Nothing in this client branches on the version — the actions used are
+    identical across those releases — which is exactly why the claim is worth
+    checking rather than trusting. A portal upgrading underneath us should show
+    up as a failing test, not as a tool that quietly stopped working.
+    """
+    reported = await city.action("status_show")
+    assert reported["ckan_version"].startswith(city.portal.ckan_version), (
+        f"{city.portal.key} reports {reported['ckan_version']}, "
+        f"descriptor claims {city.portal.ckan_version}"
+    )
+
+
+async def test_live_bogota_esri_layer_answers_and_aggregates():
+    """The avenue that took Bogotá from 27% to the low sixties, end to end.
+
+    Server-side GROUP BY on a territorial layer is the one thing no CKAN city
+    portal can do, so this asserts the rollup arrives computed rather than as
+    rows to be summed.
+    """
+    from colombian_open_data_mcp import esri
+
+    client = esri.EsriClient()
+    try:
+        ckan_client = ckan.CkanClient(ckan.BOGOTA)
+        body = await ckan_client.package_search(query='res_format:"ESRI REST"', rows=10)
+        layer = next(
+            (
+                r["url"]
+                for d in body["results"]
+                for r in d["resources"]
+                if "ESRI" in (r.get("format") or "").upper()
+                and esri.is_layer_url(r.get("url") or "")
+            ),
+            None,
+        )
+        await ckan_client.close()
+        assert layer, "Bogotá's catalogue no longer publishes a queryable ESRI layer"
+
+        info = await client.service_info(layer)
+        formatted = esri.format_service_info(info, layer)
+        assert formatted["fields"], "the layer reports no fields"
+
+        rows = await client.query(layer, limit=3)
+        assert esri.format_features(rows, layer)["rows_returned"] >= 1
+    finally:
+        await client.close()
+
+
+async def test_live_bogota_publishes_files_this_server_can_read():
+    """The third avenue, which took Bogotá from the low sixties to about 86%."""
+    from colombian_open_data_mcp import tabular
+
+    client = ckan.CkanClient(ckan.BOGOTA)
+    try:
+        body = await client.package_search(query='res_format:"CSV"', rows=5)
+        resource = next(
+            (
+                r
+                for d in body["results"]
+                for r in d["resources"]
+                if (r.get("format") or "").upper() == "CSV" and r.get("url")
+            ),
+            None,
+        )
+        assert resource, "Bogotá's catalogue no longer publishes a CSV"
+        out = await tabular.read_resource_file(resource["url"], "CSV", rows=3)
+        assert out["rows_returned"] >= 1
+        assert out["columns"]
+    finally:
+        await client.close()
 
 
 async def test_live_national_saved_views_are_queryable(_client):

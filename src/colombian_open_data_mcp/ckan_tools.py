@@ -87,7 +87,8 @@ CITY_PARAM_DESC = (
     "Which territorial portal to query:\n"
     "- `bogota` — Bogotá D.C., the largest catalogue but the least reliable "
     "DataStore (about 27% of datasets return rows).\n"
-    "- `cali` — Santiago de Cali (about 75%).\n"
+    "- `cali` — Santiago de Cali (67%; a quarter of its catalogue is "
+    "cartographic image bundles no tabular tool can read).\n"
     "- `valle` — Valle del Cauca, department-level, small and complete (100%).\n"
     "- `cartagena` — Cartagena de Indias, small and almost complete (97%)."
 )

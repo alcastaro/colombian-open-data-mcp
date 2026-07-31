@@ -6,10 +6,12 @@
 
 # colombian-open-data-mcp
 
-**Servidor MCP para los datos abiertos del Estado colombiano — tres portales,
-dos plataformas: el nacional [datos.gov.co](https://www.datos.gov.co) (Socrata,
-8.391 conjuntos), [Bogotá](https://datosabiertos.bogota.gov.co) (CKAN, ~1.900) y
-[Cali](https://datos.cali.gov.co) (CKAN, 657).**
+**Servidor MCP para los datos abiertos del Estado colombiano — cinco portales y
+tres fuentes de datos: el nacional [datos.gov.co](https://www.datos.gov.co)
+(Socrata, 8.391 conjuntos), [Bogotá](https://datosabiertos.bogota.gov.co)
+(CKAN, ~1.900), [Cali](https://datos.cali.gov.co) (657),
+[Valle del Cauca](https://datosabiertos.valledelcauca.gov.co) (50) y
+[Cartagena](https://datosabiertos.cartagena.gov.co) (38).**
 
 El primer servidor MCP de datos abiertos de Colombia que se instala y se ejecuta
 **en su propia máquina** — sin pasarela, sin intermediario, sin cuenta. Conecta
@@ -17,11 +19,11 @@ cualquier asistente compatible con MCP (Claude Desktop, Claude Code, Cursor, VS
 Code Copilot, Gemini CLI) directamente con los catálogos y con los datos vivos:
 el filtrado y la agregación los ejecutan los portales, no el modelo.
 
-**28 herramientas · 281 pruebas herméticas · 18 pruebas en vivo · MIT**
+**24 herramientas · 529 pruebas herméticas · 34 en vivo · 92% de cobertura · MIT**
 
 ---
 
-## Por qué dos portales, y por qué no son intercambiables
+## Por qué las plataformas no son intercambiables
 
 El portal nacional corre sobre **Socrata**, lo que lo hace atípico en América
 Latina — Argentina, Chile, México, Uruguay y República Dominicana corren todos
@@ -29,22 +31,47 @@ sobre CKAN. Socrata trae un lenguaje de consulta de verdad, **SoQL**, de modo
 que `WHERE`, `GROUP BY`, `count()` y `sum()` se ejecutan en el servidor y solo
 viajan las filas ya agregadas.
 
-Los dos portales distritales corren sobre **CKAN 2.10.4**. Su DataStore admite
-filtrado tipado, pero ninguno expone `datastore_search_sql` — verificado contra
-ambas APIs reales: Bogotá responde 400 (la acción no está registrada, y además
-un WAF bloquea la forma GET) y Cali responde 403.
+Los cuatro portales territoriales corren sobre **CKAN**. Su DataStore admite
+filtrado tipado, pero **ninguno de los cuatro expone `datastore_search_sql`** —
+verificado contra las cuatro APIs reales: Bogotá responde 400 (la acción no está
+registrada, y además un WAF bloquea la forma GET), Cali responde 403, y Valle y
+Cartagena responden 400.
 
 Esa diferencia es real, así que este servidor la expone en lugar de disimularla.
 Hay un `aggregate_dataset` para el portal nacional y **ningún equivalente
-distrital**, porque ofrecerlo sería prometer algo que esos portales no pueden
-hacer. Una prueba en vivo verifica esa ausencia en cada uno; si alguno llegara a
-habilitar SQL, la prueba falla y avisa.
+territorial sobre el DataStore**, porque ofrecerlo sería prometer algo que esos
+portales no pueden hacer. Una prueba en vivo verifica esa ausencia en cada uno;
+si alguno llegara a habilitar SQL, la prueba falla y avisa.
 
-Por la misma razón las familias son herramientas separadas y no una sola con un
-parámetro `portal`: los identificadores de Socrata son códigos 4x4
-(`abcd-1234`), los de CKAN son UUID o slugs, y un parámetro compartido tendría
-que ramificar su validación — y la validación de identificadores es justamente
-la defensa contra la inyección en la URL.
+Las familias de Socrata y de CKAN siguen separadas y no se funden en una sola
+herramienta con un parámetro `portal`: los identificadores de Socrata son
+códigos 4x4 (`abcd-1234`), los de CKAN son UUID o slugs, y un parámetro
+compartido tendría que ramificar su validación — y la validación de
+identificadores es justamente la defensa contra la inyección en la URL. Entre
+los cuatro portales CKAN nada de eso aplica, y por eso esos sí se colapsaron en
+un único parámetro `city` en la versión 0.4.
+
+## Tres caminos hacia los datos
+
+Un catálogo territorial colombiano publica el mismo conjunto de datos de varias
+formas, y solo una de ellas es una tabla de base de datos. Este servidor lee las
+tres, en el orden en que un modelo debería intentarlas:
+
+1. **El DataStore de CKAN** — una consulta tipada contra una tabla que el portal
+   ya construyó. No viaja nada más que la respuesta.
+2. **Servicios ArcGIS REST** — 334 de los 1.917 conjuntos de Bogotá se publican
+   como capas ESRI. Son APIs, no archivos: filtran, proyectan, paginan y
+   **calculan `GROUP BY` en el servidor**. `city_esri_aggregate` es la única
+   agregación territorial de este servidor que no se suma sobre filas dentro del
+   contexto del modelo.
+3. **El archivo publicado** — un CSV, XLSX, JSON o GeoJSON en una URL de
+   descarga, para los conjuntos que no tienen tabla ni servicio. Se descarga con
+   un tope de 12 MB, se parsea, se responde y se descarta. No hay caché ni nada
+   que toque el disco.
+
+Ese tercer camino es lo que el servidor dominicano hermano hace para *todo* su
+catálogo, porque `datos.gob.do` corre CKAN sin la extensión DataStore. Aquí es
+el último recurso, y por eso cuesta una fracción del código.
 
 ## Herramientas
 
@@ -65,62 +92,73 @@ la defensa contra la inyección en la URL.
 | `aggregate_dataset` | GROUP BY tipado + count / sum / avg / median / min / max / stddev. |
 | `query_dataset_soql` | Escotilla para usuarios avanzados: SoQL crudo, solo lectura, validado. |
 
-### Portales distritales — Bogotá y Cali (8 cada uno)
+### Portales territoriales — una familia, cuatro catálogos (12)
 
-| Herramienta (por ciudad) | Qué hace |
+Todas las herramientas de abajo reciben un parámetro `city`: `bogota`, `cali`,
+`valle` o `cartagena`.
+
+| Herramienta | Qué hace |
 |---|---|
-| `<ciudad>_search_datasets` | Búsqueda en el catálogo, filtrable por entidad, grupo o etiqueta. |
-| `<ciudad>_get_dataset` | Metadatos completos y todos los recursos, cada uno marcado `queryable`. |
-| `<ciudad>_list_organizations` | Entidades distritales que publican, con su número de conjuntos. |
-| `<ciudad>_list_groups` | Grupos temáticos. |
-| `<ciudad>_list_tags` | Etiquetas del portal. |
-| `<ciudad>_get_site_stats` | Totales del portal, y qué puede y qué no puede hacer su DataStore. |
-| `<ciudad>_resource_preview` | Primeras N filas de un recurso en DataStore, con los tipos de columna. |
-| `<ciudad>_filter_resource` | Filtrado, proyección y ordenamiento tipados del lado del servidor. |
+| `city_search_datasets` | Búsqueda en el catálogo, filtrable por entidad, grupo o etiqueta. |
+| `city_get_dataset` | Metadatos completos y todos los recursos, cada uno marcado `queryable`. |
+| `city_list_organizations` | Entidades que publican, con número de conjuntos. |
+| `city_list_groups` | Grupos temáticos. |
+| `city_list_tags` | Etiquetas del portal. |
+| `city_get_site_stats` | Totales del portal y qué puede y qué no puede su DataStore. |
+| `city_resource_preview` | Primeras N filas de un recurso en el DataStore, con tipos de columna. |
+| `city_filter_resource` | Filtro tipado, proyección y orden, ejecutados en el servidor. |
+| `city_esri_service_info` | Campos y capacidades de una capa ArcGIS REST. |
+| `city_esri_query` | Filas de una capa ArcGIS, filtradas y paginadas en el servidor. |
+| `city_esri_aggregate` | **`GROUP BY` en el servidor** sobre una capa ArcGIS. |
+| `city_read_resource_file` | Descarga y parsea un recurso CSV / XLSX / JSON publicado. |
 
-`<ciudad>` es `bogota` o `cali`. Ambos portales corren CKAN 2.10.4 y las ocho
-herramientas se generan a partir de una sola definición, así que su forma es
-idéntica — hay una prueba que lo verifica. Ninguno tiene herramienta de
-agregación, porque ninguno expone `datastore_search_sql`.
+Hasta la versión 0.3 cada portal tenía su propia familia de ocho herramientas
+con prefijo. Cuatro portales de esa forma serían treinta y dos esquemas casi
+idénticos, así que la 0.4 los colapsó: doce herramientas que cubren el doble de
+terreno, y un quinto portal pasa a ser un descriptor y nada más.
 
 ## Qué puede y qué no puede responder cada portal
 
-Estas cifras salen de ejecutar las herramientas de verdad contra 450 conjuntos
-elegidos al azar — 150 por portal, semilla 31337 (`sweep/stress_test.py`) —, no
-de leer documentación:
+Estas cifras salen de ejecutar las herramientas reales contra una muestra
+aleatoria — `sweep/stress_test.py --total 600 --seed 60606` — no de leer
+documentación. Valle del Cauca y Cartagena son lo bastante pequeños como para
+haber recorrido sus catálogos enteros en vez de muestrearlos.
 
-| | datos.gov.co | Bogotá | Cali |
-|---|---|---|---|
-| Plataforma | Socrata | CKAN 2.10.4 | CKAN 2.10.4 |
-| Filtrar del lado del servidor | sí | sí | sí |
-| **Agregar del lado del servidor** | **sí** | no | no |
-| Conjuntos que devolvieron filas reales | **100%** | **27%** | **75%** |
+| Portal | Plataforma | Muestra | Devolvió filas reales | Tasa | DataStore | ESRI | Archivo |
+|---|---|---|---|---|---|---|---|
+| `datos.gov.co` | Socrata | 120 | 119 | **99.2%** | — | — | — |
+| `datos.cali.gov.co` | CKAN | 120 | 74 | **61.7%** | 74 | — | — |
+| `datosabiertos.bogota.gov.co` | CKAN | 120 | 105 | **87.5%** | 20 | 21 | 64 |
+| `datosabiertos.cartagena.gov.co` | CKAN | 38 | 38 | **100.0%** | 37 | — | 1 |
+| `datosabiertos.valledelcauca.gov.co` | CKAN | 50 | 50 | **100.0%** | 50 | — | — |
 
-De las 1.355 llamadas de esa corrida, **ninguna lanzó excepción** — todos los
-fallos llegaron como un sobre de error sobre el que el modelo puede actuar.
+Las tres columnas de la derecha dicen **por qué vía** llegaron las filas. Esa
+desagregación es deliberada: una cifra de cobertura que sube cuando se añaden
+herramientas, sin decir cuál hizo el trabajo, no es un número que nadie pueda
+comprobar.
 
-En los portales CKAN la última fila de la tabla es una propiedad del portal, no
-de este servidor. La causan dos cosas. La mayor parte de cada catálogo se publica como
-archivos y no a través del DataStore — muy geoespacial en el caso de Bogotá
-(SHP, GPKG, GEOJSON, DXF, KML, las capas de la IDECA). Y la propia bandera
-`datastore_active` del catálogo no es fiable: de 80 recursos medidos que la
-llevaban, 27 respondieron HTTP 404 porque no existe tabla. El servidor reescribe
-ese 404 como una explicación que señala los metadatos del portal como causa,
-para que el modelo entienda que se equivocó el catálogo y no él.
+Bogotá es el portal al que apuntaba esta versión, y la forma de su catálogo
+explica por qué. Solo una cuarta parte de sus conjuntos está en el DataStore, y
+encima la bandera `datastore_active` del propio catálogo no es de fiar: de 80
+recursos medidos que la traían, 27 respondieron HTTP 404 porque no existe tabla
+detrás. El servidor reescribe ese 404 en una explicación que señala los
+metadatos del portal como la causa, para que el modelo sepa que se equivocó el
+catálogo y no asuma que se equivocó él. `city_get_dataset` marca cada recurso
+`queryable: true/false`; tómelo como una pista, no como una promesa.
 
-`<ciudad>_get_dataset` marca cada recurso con `queryable: true/false`. Conviene
-tratarlo como una pista, no como una promesa.
+Lo que cierra la brecha es que el resto del catálogo no falta: está publicado de
+otra manera, como servicios ArcGIS y como archivos planos. Leer ambos es lo que
+llevó a Bogotá del 27% a algo más del 85%.
 
-Alrededor del 9% de los recursos de Bogotá son **servicios** consultables y no
-archivos — endpoints ESRI REST, WFS y WMS que aceptan `?query=`, paginan y, en
-el caso de ESRI, calculan estadísticas. Leerlos no requiere descargar nada, y es
-el trabajo de ampliación de cobertura con mejor retorno que queda pendiente.
+En todas las llamadas de esa corrida, **ninguna lanzó una excepción** — cada
+fallo llegó como un sobre de error sobre el que el modelo puede actuar.
 
-Este servidor **no** descarga archivos de recursos, deliberadamente. Hacerlo
-supondría unas 750 líneas más y una guardia contra SSRF, y los analizadores de
-CSV/XLSX que traería no podrían leer SHP ni GPKG de todos modos — así que el
-hueco quedaría casi igual de abierto. El razonamiento completo está en
-`CHANGELOG.md`.
+### Lo que sigue fuera de alcance
+
+Los archivos genuinamente geoespaciales — SHP, GPKG, DXF, KML, DWG — se rechazan
+con una explicación en vez de parsearse mal. Leerlos exigiría una pila SIG que
+este servidor no tiene por qué cargar, y cuando un conjunto publica un servicio
+ESRI junto al shapefile, el servicio ya responde la pregunta.
 
 ## Instalación
 
@@ -160,21 +198,49 @@ Pregúntele a su asistente, en español o en inglés:
 > Filtra el recurso de casos de Bogotá por localidad Bosa y muéstrame las
 > primeras 20 filas.
 
+> Cuenta cuántos parques hay por localidad en la capa ESRI de Bogotá — que lo
+> agrupe el servidor, no tú.
+
+> Ese dataset de Bogotá no está en el DataStore. Lee el archivo publicado y
+> muéstrame las columnas.
+
+> ¿Qué publica el portal de Cartagena y qué de eso se puede consultar?
+
 ## Notas de diseño
 
-**Socrata y CKAN son el motor de consulta.** Ninguno de los dos portales
-necesita caché local, capa DuckDB ni paso de descarga, porque ambos ejecutan la
-consulta por su cuenta. El proyecto hermano
+**Los portales son el motor de consulta, siempre que se pueda.** Socrata ejecuta
+SoQL, el DataStore de CKAN ejecuta filtros tipados y ArcGIS calcula estadísticas
+— de modo que tres de los cuatro caminos de datos transfieren solo la respuesta.
+El proyecto hermano
 [`dominican-open-data-mcp`](https://github.com/alcastaro/datos.gob.do-MCP-server)
 carga unas 4.500 líneas de caché, análisis de archivos y reparación de enlaces
-que le impone un portal CKAN sin DataStore. Este no las necesita, y por eso
-cubre 28 herramientas con mucho menos código. Menos líneas aquí es consecuencia
-de un mejor sustrato, no de un producto más pobre.
+porque `datos.gob.do` corre CKAN **sin DataStore alguno** y cada fila que sirve
+tiene que salir de un archivo descargado. Este servidor necesita una descarga
+solo para el último recurso, y no necesita caché para ninguno.
+
+**No se almacena nada.** `city_read_resource_file` descarga con un tope, parsea
+las primeras filas, responde y descarta los bytes. Eso es un límite deliberado
+tanto como una decisión de diseño: conservar estos conjuntos convertiría a este
+servidor en **responsable del tratamiento** bajo la Ley 1581 de 2012 para
+cualquiera de ellos que contenga personas identificables. Esa es una decisión
+que se toma explícita y separadamente, no algo que se adquiere como efecto
+secundario de una optimización de rendimiento.
+
+**Ninguna herramienta acepta una URL.** Las de ESRI y la de archivos reciben un
+UUID de recurso y consultan la dirección en el catálogo del propio portal, de
+modo que el conjunto de hosts que este servidor puede alcanzar está acotado por
+lo que publica un catálogo del Estado colombiano. Encima de eso, `netguard.py`
+exige que toda dirección resuelta sea globalmente enrutable — rechazando
+loopback, RFC-1918, ULA de IPv6 y el endpoint de metadatos de nube en
+`169.254.169.254` — y está instalado como un *hook* de petición de httpx, así
+que también se verifican los saltos de redirección. Vea
+**[SECURITY.md](SECURITY.md)**, cuya sección «No SSRF surface» **se eliminó en
+la 0.4 porque dejó de ser cierta**.
 
 **Toda herramienta retorna, ninguna lanza excepción.** Una caída del portal
 llega como `{"error": ..., "hint": ...}` — una excepción escapando de una
 herramienta le llegaría al modelo como un error opaco de protocolo, sobre el que
-no puede actuar. Una prueba parametrizada lo verifica para las 28, y el arnés de
+no puede actuar. Una prueba parametrizada lo verifica para las 24, y el arnés de
 fuerza lo confirma contra los catálogos vivos: cero excepciones en miles de
 llamadas reales.
 
@@ -195,17 +261,22 @@ consultas multisentencia. Vea **[SECURITY.md](SECURITY.md)**.
 
 ```bash
 uv sync --group dev --extra dev
-uv run pytest                                  # 281 pruebas herméticas, piso de cobertura 85%
-uv run ruff check src/ tests/
+uv run pytest                                  # 529 pruebas herméticas, piso de cobertura 85%
+uv run ruff check src/ tests/ sweep/
 uv run mypy src/colombian_open_data_mcp/
-RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 18 pruebas en vivo, opcionales
-uv run python sweep/stress_test.py             # 450 conjuntos al azar, los tres portales
+RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 34 pruebas en vivo, opcionales
+uv run python sweep/stress_test.py --total 600 --seed 60606   # los cinco portales
 ```
 
-Las pruebas en vivo nunca corren en CI. Ambos portales son infraestructura de
-terceros y el de Bogotá está detrás de un WAF; una compilación que se pone en
+Las pruebas en vivo nunca corren en CI. Los cinco portales son infraestructura
+de terceros y el de Bogotá está detrás de un WAF; una compilación que se pone en
 rojo porque el limitador de tasa de otro tuvo un mal minuto es una compilación
 que la gente aprende a ignorar.
+
+El arnés de fuerza no es una prueba: es una medición ocasional contra catálogos
+vivos, y es deliberadamente cortés — concurrencia 4, una pausa entre sondeos, y
+un orden de vías que intenta primero la petición más barata. No suba la
+concurrencia para ir más rápido.
 
 Vea **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 

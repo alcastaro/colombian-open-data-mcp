@@ -30,7 +30,7 @@ actually returned, not the catalogue's own flag counted:
 Portal        Datasets  Return rows through the DataStore
 ============  ========  ======================================================
 Bogotá           1,917  ~27%
-Cali               657  ~75%
+Cali               657  67% (440/657, counted exhaustively)
 Valle               50  100% (whole catalogue walked)
 Cartagena           38  97% (whole catalogue walked)
 ============  ========  ======================================================
@@ -137,7 +137,9 @@ CALI = CkanPortal(
     city="Santiago de Cali",
     ckan_version="2.10.4",
     approx_datasets=657,
-    datastore_coverage="about 75%",
+    # 440 of 657, counted exhaustively rather than sampled. An earlier figure of
+    # 75% came from a page-clustered sample; see sweep/stress_test.py.
+    datastore_coverage="about 67%",
 )
 
 # Valle del Cauca is a department rather than a city, and it is the cleanest
@@ -538,7 +540,7 @@ def format_resource(r: dict) -> dict:
     """One CKAN resource, trimmed.
 
     ``datastore_active`` is surfaced deliberately: it is the single field that
-    tells the model whether ``bogota_filter_resource`` will work on this
+    tells the model whether ``city_filter_resource`` will work on this
     resource or whether the only thing available is the download URL.
     """
     return {

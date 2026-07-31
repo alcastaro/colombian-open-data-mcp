@@ -345,3 +345,81 @@ async def test_fetch_metadata_headers_are_sent(httpx_mock):
     assert headers["Sec-Fetch-Mode"] == "cors"
     assert headers["Sec-Fetch-Dest"] == "empty"
     assert "colombian-open-data-mcp" in headers["User-Agent"]
+
+
+# ─── Truncation changes what a parse failure means ───────────────────────────
+
+
+async def test_a_truncated_json_file_blames_the_cap_not_the_publisher(httpx_mock):
+    """Measured on Bogotá's structural-ecology layer.
+
+    The parse failed at character 12,572,463 — the byte cap exactly — and the
+    error said "not valid JSON". That sends a model looking for a defect in a
+    file that is perfectly well formed, and blames a publisher for a cut this
+    server made. CSV reads fine from a prefix; JSON needs its closing brace and
+    XLSX is a zip archive, so for those two the truncation *is* the cause.
+    """
+    body = b'[{"a": 1}, {"a": 2}, {"a": 3}]'
+    httpx_mock.add_response(url=ANY, content=body)
+    with pytest.raises(TabularError, match="download cap"):
+        await tabular.read_resource_file(URL, "JSON", max_bytes=12)
+
+
+async def test_a_truncated_workbook_blames_the_cap(httpx_mock):
+    httpx_mock.add_response(url=ANY, content=xlsx_bytes([["A"], [1]]))
+    with pytest.raises(TabularError, match="download cap"):
+        await tabular.read_resource_file(URL, "XLSX", max_bytes=64)
+
+
+async def test_an_untruncated_json_failure_still_blames_the_file(httpx_mock):
+    httpx_mock.add_response(url=ANY, content=b"{no esto no")
+    with pytest.raises(TabularError, match="not valid JSON"):
+        await tabular.read_resource_file(URL, "JSON")
+
+
+async def test_a_truncated_csv_still_returns_its_rows(httpx_mock):
+    """The asymmetry that justifies threading the flag through at all."""
+    httpx_mock.add_response(url=ANY, content=b"a,b\n1,2\n3,4\n5,6\n")
+    out = await tabular.read_resource_file(URL, "CSV", max_bytes=12)
+    assert out["download_truncated"] is True
+    assert out["rows"][0] == {"a": "1", "b": "2"}
+
+
+# ─── Malformed CSV must never escape as an exception ─────────────────────────
+
+
+def test_a_value_containing_a_newline_parses():
+    """The bug the stress harness caught, on two real Bogotá resources.
+
+    Without `newline=""`, StringIO translates line endings before csv.reader
+    sees them and an embedded newline raises `_csv.Error`. That error is not a
+    TabularError, so it escaped the tool entirely and reached the model as an
+    opaque protocol error rather than as an envelope it could act on.
+    """
+    data = b'id,nota\r\n1,"linea uno\r\nlinea dos"\r\n2,corta\r\n'
+    out = tabular.parse_csv(data, rows=5)
+    assert out["rows_returned"] == 2
+    assert "linea dos" in out["rows"][0]["nota"]
+
+
+def test_a_csv_broken_partway_returns_what_it_read():
+    """Malformed rows are common in published data. Whatever was readable
+    before the break is still worth more than an error."""
+    data = b'a,b\n1,2\n3,"unterminated' + b"x" * 200_000
+    out = tabular.parse_csv(data, rows=5)
+    assert out["rows"][0] == {"a": "1", "b": "2"}
+
+
+async def test_an_unparseable_csv_returns_an_envelope_not_an_exception(httpx_mock):
+    """The property the whole error-envelope design rests on, at the one place
+    a parser this module does not own can raise.
+
+    A header field past csv's field-size limit raises `_csv.Error` on the very
+    first read, before any row exists to salvage. That has to arrive as a
+    TabularError — the tool only catches TabularError and CkanError, so
+    anything else escapes to the model as an opaque protocol error. Two real
+    Bogotá resources proved that path was open.
+    """
+    httpx_mock.add_response(url=ANY, content=b"a," + b"x" * 200_000 + b"\n1,2\n")
+    with pytest.raises(TabularError, match="not readable as delimited text"):
+        await tabular.read_resource_file(URL, "CSV")
