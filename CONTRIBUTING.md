@@ -11,7 +11,8 @@ Open an issue with:
 - Python version and OS
 - Minimal reproduction steps
 - What you expected vs. what happened
-- Which portal was involved (`datos.gov.co` or Bogotá) — they are different
+- Which portal was involved (`datos.gov.co`, Bogotá, Cali, Valle del Cauca or
+  Cartagena) — the platforms are different
   platforms and most bugs belong to one of them
 
 ## Pull requests
@@ -20,8 +21,8 @@ Open an issue with:
 2. **Install dev deps:** `uv sync --group dev --extra dev`
 3. **Quality gates must pass before opening the PR:**
    ```bash
-   uv run ruff check src/ tests/
-   uv run ruff format --check src/ tests/
+   uv run ruff check src/ tests/ sweep/
+   uv run ruff format --check src/ tests/ sweep/
    uv run mypy src/colombian_open_data_mcp/ --no-error-summary
    uv run pytest
    ```
@@ -38,7 +39,7 @@ Open an issue with:
 
 ## Why live tests stay out of CI
 
-Both portals are third-party infrastructure we do not control, and Bogotá's
+All five portals are third-party infrastructure we do not control, and Bogotá's
 sits behind a WAF that has already refused a probe from a laptop during
 development. A shared CI runner IP is more likely to be refused, not less. A
 build that goes red because someone else's rate limiter had a bad minute is a
@@ -65,5 +66,17 @@ RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v
   as `{"error": ..., "hint": ...}`; an exception escaping a tool arrives as an
   opaque protocol error the model cannot act on. `tests/test_server_tools.py`
   enforces this for every registered tool.
+- **Every ArcGIS `where` clause** goes through `esri.validate_where()` and every
+  field name through `esri.validate_field()`. ArcGIS evaluates the clause as SQL
+  against a database we do not own.
+- **No tool may take a URL.** The ESRI and file tools accept a resource UUID and
+  look the address up through the portal's own catalogue, which is what bounds
+  the set of hosts this server can reach. Every outbound request to a
+  catalogue-chosen address goes through `netguard.guard_request_hook`. A test
+  asserts the absence of any `url`-shaped parameter, and it is not negotiable.
+- **Nothing is cached and nothing touches disk.** Storing these datasets would
+  make this server a *responsable del tratamiento* under Ley 1581 de 2012 for
+  any of them containing identifiable people. That is a decision to take
+  explicitly, not to acquire as a side effect of a performance optimisation.
 - **Bumping the version means five files.** `test_version_sync.py` will tell
   you which one you missed.
