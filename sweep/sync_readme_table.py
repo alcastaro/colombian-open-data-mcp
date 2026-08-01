@@ -50,19 +50,26 @@ def resumen_table(report: str) -> str:
     return "\n".join(rows)
 
 
+# The report is written in Spanish, and the English README should not inherit
+# its column headers. Only the header row is translated — every figure below it
+# is copied verbatim, which is the whole point of this script.
+HEADERS_EN = "| Portal | Platform | Sample | Returned real rows | Rate | DataStore | ESRI | File |"
+
+
 def main() -> int:
     report_path = latest_report()
     table = resumen_table(report_path.read_text(encoding="utf-8"))
-    for name in ("README.md", "README.es.md"):
+    english = HEADERS_EN + table[table.index("\n") :]
+    for name, body in (("README.md", english), ("README.es.md", table)):
         path = ROOT / name
         text = path.read_text(encoding="utf-8")
         if MARKER in text:
-            text = text.replace(MARKER, table, 1)
+            text = text.replace(MARKER, body, 1)
         else:
             # Already filled: replace whatever table sits where this one went.
             text = re.sub(
-                r"\| Portal \| Plataforma \|.*?(?=\n\n)",
-                table,
+                r"\| Portal \| (?:Plataforma|Platform) \|.*?(?=\n\n)",
+                body.replace("\\", "\\\\"),
                 text,
                 count=1,
                 flags=re.DOTALL,

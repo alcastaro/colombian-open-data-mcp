@@ -120,7 +120,7 @@ These figures come from running the actual tools against a random sample —
 documentation. Valle del Cauca and Cartagena are small enough that their whole
 catalogues were walked rather than sampled.
 
-| Portal | Plataforma | Muestra | Devolvió filas reales | Tasa | DataStore | ESRI | Archivo |
+| Portal | Platform | Sample | Returned real rows | Rate | DataStore | ESRI | File |
 |---|---|---|---|---|---|---|---|
 | `datos.gov.co` | Socrata | 120 | 119 | **99.2%** | — | — | — |
 | `datos.cali.gov.co` | CKAN | 120 | 74 | **61.7%** | 74 | — | — |
