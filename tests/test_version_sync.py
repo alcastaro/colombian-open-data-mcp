@@ -156,3 +156,50 @@ def test_no_tool_accepts_a_url():
     for tool in asyncio.run(mcp.list_tools()):
         properties = set(tool.inputSchema.get("properties") or {})
         assert not (properties & {"url", "uri", "address", "endpoint", "host"}), tool.name
+
+
+def test_the_sdist_is_an_allowlist_not_a_denylist(repo_files):
+    """A local tool directory once shipped inside the published package.
+
+    `uv build` does not honour nested .gitignore files, so
+    `.code-review-graph/graph.db` — an 852 KB SQLite database git had never
+    tracked, carrying absolute paths under the maintainer's home directory —
+    ended up in the source distribution, at 74% of its size. Nothing in the
+    repository was wrong; the build simply swept up a working directory.
+
+    A denylist cannot fix that, because the next tool will use a different
+    directory name. Naming what goes in can.
+    """
+    pyproject, _ = repo_files
+    assert "[tool.hatch.build.targets.sdist]" in pyproject, (
+        "the sdist must declare an explicit include list; without one the build "
+        "packages whatever happens to be in the working tree"
+    )
+    section = pyproject.split("[tool.hatch.build.targets.sdist]", 1)[1]
+    include = section.split("\n[", 1)[0]
+    assert "include = [" in include, "the sdist section must use include, not exclude"
+    for required in ("/src", "/tests", "/README.md", "/LICENSE", "/server.json"):
+        assert f'"{required}"' in include, f"the sdist would ship without {required}"
+
+
+def test_the_package_description_names_every_portal(repo_files):
+    """The one-line summary is what PyPI search shows and what a user reads
+    first. A portal missing from it is a portal nobody discovers."""
+    from colombian_open_data_mcp import ckan
+
+    pyproject, _ = repo_files
+    description = ""
+    for line in pyproject.splitlines():
+        if line.startswith("description ="):
+            description = line
+            break
+    assert description, "pyproject has no description"
+    for portal in ckan.PORTALS.values():
+        # A portal's territory name is one to three words ("Bogotá D.C.",
+        # "Santiago de Cali", "Valle del Cauca") and the description need only
+        # carry the part a person would actually search for, so any
+        # substantial word counts.
+        words = [w.strip(",.") for w in portal.city.split() if len(w) > 3]
+        assert any(w in description for w in words), (
+            f"{portal.key} is missing from the package description"
+        )

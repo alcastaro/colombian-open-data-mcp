@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "colombian-open-data-mcp"
 version = "0.4.0"
-description = "MCP server for Colombia's open government data — datos.gov.co (Socrata), Bogotá and Cali (CKAN)."
+description = "MCP server for Colombia's open government data — the national datos.gov.co plus the Bogotá, Cali, Valle del Cauca and Cartagena portals."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -18,6 +18,10 @@ keywords = [
     "colombia",
     "bogota",
     "cali",
+    "valle-del-cauca",
+    "cartagena",
+    "arcgis",
+    "esri-rest",
     "socrata",
     "soda-api",
     "ckan",
@@ -73,9 +77,35 @@ Changelog = "https://github.com/alcastaro/colombian-open-data-mcp/blob/main/CHAN
 Portal = "https://www.datos.gov.co"
 "Portal Bogotá" = "https://datosabiertos.bogota.gov.co"
 "Portal Cali" = "https://datos.cali.gov.co"
+"Portal Valle del Cauca" = "https://datosabiertos.valledelcauca.gov.co"
+"Portal Cartagena" = "https://datosabiertos.cartagena.gov.co"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/colombian_open_data_mcp"]
+
+# The source distribution is an allowlist, not a denylist, and that is
+# deliberate. `uv build` does not honour nested .gitignore files, so a local
+# tool directory that git has never tracked still ended up inside the published
+# sdist — .code-review-graph/graph.db, an 852 KB SQLite database carrying
+# absolute paths under the maintainer's home directory. It was 74% of the
+# package. Naming what goes in means the next tool that drops a working
+# directory here cannot repeat that.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/sweep",
+    "/docs",
+    "/README.md",
+    "/README.es.md",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/SECURITY.md",
+    "/CITATION.cff",
+    "/LICENSE",
+    "/server.json",
+    "/pyproject.toml",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

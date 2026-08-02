@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] — 2026-08-29
 
 Five portals, and two new ways to reach data no DataStore holds. **24 tools**
-(down from 28, covering twice the portals), 534 hermetic tests, 34 live, 92%
+(down from 28, covering twice the portals), 536 hermetic tests, 34 live, 92%
 coverage.
 
 Measured coverage — datasets that returned rows a model can read, running the
@@ -111,6 +111,14 @@ impersonating a browser to defeat a WAF, which this project does not do.
 
 ### Security
 
+- **The source distribution shipped a local tool directory.**
+  `.code-review-graph/graph.db`, an 852 KB SQLite database git had never
+  tracked, was 74% of the published package and carried absolute paths under
+  the maintainer's home directory. `uv build` does not honour nested
+  `.gitignore` files. The sdist is now an explicit allowlist, so the next tool
+  that leaves a working directory in the tree cannot repeat it, and a test
+  fails if that allowlist is ever turned back into a denylist. Caught before
+  the first publish; no release ever carried it.
 - No tool accepts a URL. The ESRI and file tools take a resource UUID and look
   the address up through the portal's own `resource_show`, so the reachable host
   set is bounded by what a Colombian government catalogue publishes. A test
