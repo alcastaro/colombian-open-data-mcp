@@ -122,9 +122,9 @@ catalogues were walked rather than sampled.
 
 | Portal | Platform | Sample | Returned real rows | Rate | DataStore | ESRI | File |
 |---|---|---|---|---|---|---|---|
-| `datos.gov.co` | Socrata | 120 | 119 | **99.2%** | — | — | — |
+| `datos.gov.co` | Socrata | 120 | 120 | **100.0%** | — | — | — |
 | `datos.cali.gov.co` | CKAN | 120 | 74 | **61.7%** | 74 | — | — |
-| `datosabiertos.bogota.gov.co` | CKAN | 120 | 105 | **87.5%** | 20 | 21 | 64 |
+| `datosabiertos.bogota.gov.co` | CKAN | 120 | 107 | **89.2%** | 20 | 21 | 66 |
 | `datosabiertos.cartagena.gov.co` | CKAN | 38 | 38 | **100.0%** | 37 | — | 1 |
 | `datosabiertos.valledelcauca.gov.co` | CKAN | 50 | 50 | **100.0%** | 50 | — | — |
 
@@ -133,17 +133,18 @@ breakdown is deliberate: a coverage number that rises when new tools land,
 without saying which tool did the work, is not a number anyone can check.
 
 Bogotá is the portal this release was aimed at, and the shape of its catalogue
-explains why. Only about a quarter of its datasets sit in the DataStore, and the
-catalogue's own `datastore_active` flag is unreliable on top of that — of 80
-resources measured carrying the flag, 27 answered HTTP 404 because no table
-exists. The server rewrites that 404 into an explanation naming the portal's
-metadata as the cause, so a model is told the catalogue was wrong instead of
-assuming it made a mistake. `city_get_dataset` marks every resource
-`queryable: true/false`; treat it as a hint, not a promise.
+explains why. Half its datasets carry a resource the catalogue *flags* as
+DataStore-backed, and the flag is wrong more often than it is right: in this
+run, **37 of those 59 datasets answered HTTP 404** because no table exists
+behind the flag. So the DataStore alone reached 20 of 120. The server rewrites
+that 404 into an explanation naming the portal's metadata as the cause, so a
+model is told the catalogue was wrong instead of assuming it made a mistake.
+`city_get_dataset` marks every resource `queryable: true/false`; treat it as a
+hint, not a promise.
 
 What closes the gap is that the rest of the catalogue is not missing, only
 published differently — as ArcGIS services and as plain files. Reading both is
-what took Bogotá from 27% to the mid-eighties.
+what took Bogotá from 27% to 89%.
 
 Across every tool call in that run, **not one raised an exception** — every
 failure arrived as an error envelope the model can act on.

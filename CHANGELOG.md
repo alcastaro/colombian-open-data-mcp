@@ -8,8 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] — 2026-08-29
 
 Five portals, and two new ways to reach data no DataStore holds. **24 tools**
-(down from 28, covering twice the portals), 532 hermetic tests, 34 live, 92%
+(down from 28, covering twice the portals), 534 hermetic tests, 34 live, 92%
 coverage.
+
+Measured coverage — datasets that returned rows a model can read, running the
+real tools against a random sample (`sweep/stress_test.py --total 600 --seed
+60606`), with zero of 1,428 calls raising an exception:
+
+| Portal | Sample | Returned rows | DataStore | ESRI | File |
+|---|---|---|---|---|---|
+| `datos.gov.co` | 120 | **100.0%** | — | — | — |
+| `datosabiertos.bogota.gov.co` | 120 | **89.2%** (was 27%) | 20 | 21 | 66 |
+| `datos.cali.gov.co` | 120 | **61.7%** | 74 | — | — |
+| `datosabiertos.valledelcauca.gov.co` | 50 | **100.0%** | 50 | — | — |
+| `datosabiertos.cartagena.gov.co` | 38 | **100.0%** | 37 | — | 1 |
+
+Cali's ceiling is the portal's, not this server's: an exhaustive count of all
+657 of its datasets finds 167 that are cartographic bundles of JPEG, RAR and
+WMS — none of them a table — and its own download URLs answer HTTP 403 to any
+non-browser client, as does its GeoServer. Getting past that would mean
+impersonating a browser to defeat a WAF, which this project does not do.
 
 ### Added
 

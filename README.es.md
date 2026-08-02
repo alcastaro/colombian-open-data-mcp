@@ -126,9 +126,9 @@ haber recorrido sus catálogos enteros en vez de muestrearlos.
 
 | Portal | Plataforma | Muestra | Devolvió filas reales | Tasa | DataStore | ESRI | Archivo |
 |---|---|---|---|---|---|---|---|
-| `datos.gov.co` | Socrata | 120 | 119 | **99.2%** | — | — | — |
+| `datos.gov.co` | Socrata | 120 | 120 | **100.0%** | — | — | — |
 | `datos.cali.gov.co` | CKAN | 120 | 74 | **61.7%** | 74 | — | — |
-| `datosabiertos.bogota.gov.co` | CKAN | 120 | 105 | **87.5%** | 20 | 21 | 64 |
+| `datosabiertos.bogota.gov.co` | CKAN | 120 | 107 | **89.2%** | 20 | 21 | 66 |
 | `datosabiertos.cartagena.gov.co` | CKAN | 38 | 38 | **100.0%** | 37 | — | 1 |
 | `datosabiertos.valledelcauca.gov.co` | CKAN | 50 | 50 | **100.0%** | 50 | — | — |
 
@@ -138,17 +138,18 @@ herramientas, sin decir cuál hizo el trabajo, no es un número que nadie pueda
 comprobar.
 
 Bogotá es el portal al que apuntaba esta versión, y la forma de su catálogo
-explica por qué. Solo una cuarta parte de sus conjuntos está en el DataStore, y
-encima la bandera `datastore_active` del propio catálogo no es de fiar: de 80
-recursos medidos que la traían, 27 respondieron HTTP 404 porque no existe tabla
-detrás. El servidor reescribe ese 404 en una explicación que señala los
-metadatos del portal como la causa, para que el modelo sepa que se equivocó el
-catálogo y no asuma que se equivocó él. `city_get_dataset` marca cada recurso
+explica por qué. La mitad de sus conjuntos trae algún recurso que el catálogo
+*marca* como consultable, y esa marca se equivoca más veces de las que acierta:
+en esta corrida, **37 de esos 59 conjuntos respondieron HTTP 404** porque no
+existe tabla detrás. Así que el DataStore por sí solo alcanzó 20 de 120. El
+servidor reescribe ese 404 en una explicación que señala los metadatos del
+portal como la causa, para que el modelo sepa que se equivocó el catálogo y no
+asuma que se equivocó él. `city_get_dataset` marca cada recurso
 `queryable: true/false`; tómelo como una pista, no como una promesa.
 
 Lo que cierra la brecha es que el resto del catálogo no falta: está publicado de
 otra manera, como servicios ArcGIS y como archivos planos. Leer ambos es lo que
-llevó a Bogotá del 27% a algo más del 85%.
+llevó a Bogotá del 27% al 89%.
 
 En todas las llamadas de esa corrida, **ninguna lanzó una excepción** — cada
 fallo llegó como un sobre de error sobre el que el modelo puede actuar.
