@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] — 2026-08-29
 
+### Added
+
+- **A release workflow using PyPI Trusted Publishing.** No API token exists
+  anywhere — not in the repository, not in organisation secrets, not on a laptop
+  — so there is none to leak or rotate. It gates on the full test suite, refuses
+  a tag that disagrees with the package version, refuses a source distribution
+  carrying anything private, publishes to PyPI, waits for PyPI to actually serve
+  the version, and only then publishes to the MCP Registry. Two tests fail if
+  anyone reintroduces a stored credential or breaks the YAML.
+- **`docs/submission.md`** — the dossier a directory reviewer needs, with five
+  worked example prompts that each exercise a different tool family, and the
+  data-handling position stated plainly rather than glossed.
+- **`CODE_OF_CONDUCT.md`**, including two data-specific rules: never paste
+  personal data into an issue or fixture, and do not propose features that would
+  store or redistribute datasets containing identifiable people.
+- **Manual installation for Gemini CLI and Google Antigravity** in both READMEs.
+  Antigravity's MCP Store is curated by Google with no public self-submission
+  route, but `~/.gemini/config/mcp_config.json` needs nobody's permission.
+- OLDS named as maintainer in the package metadata. Attribution, not ownership
+  transfer: the package and the registry namespace stay under the personal
+  account for continuity with `dominican-open-data-mcp`.
+
+
+
 Migrated to **MCP Python SDK v2**. No behaviour changes; the wire protocol is
 identical. This is a dependency and API move made before the first publish, so
 that the package ships current rather than pinned below a major it would have

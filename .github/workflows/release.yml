@@ -1,0 +1,157 @@
+name: Release
+
+# Publishes to PyPI and then to the MCP Registry, in that order, when a tag is
+# pushed. The order is not stylistic: server.json declares PyPI as this server's
+# distribution channel, and the registry verifies the package exists before it will
+# accept the entry.
+#
+# Nothing here holds a credential. Publication uses PyPI Trusted Publishing: PyPI is
+# configured to trust this repository and this workflow file by name, and mints a
+# short-lived token at publish time through the `id-token: write` permission below.
+# There is no API token in the repository, in the organisation secrets, or on a
+# maintainer's laptop — so there is none to leak, rotate or accidentally commit.
+#
+# One-time setup on PyPI before the first tag, at
+# https://pypi.org/manage/account/publishing/ :
+#
+#   PyPI project name  colombian-open-data-mcp
+#   Owner              alcastaro          (or the OLDS organisation, once it exists)
+#   Repository name    colombian-open-data-mcp
+#   Workflow name      release.yml
+#   Environment name   pypi
+#
+# The environment name must match the `environment:` key below. Adding a required
+# reviewer to that environment in GitHub's settings turns publication into a
+# deliberate act rather than a consequence of pushing a tag.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The gate runs the same checks as CI. A tag can be pushed from a branch that never
+  # went through a pull request, so re-running them here is not redundant — it is the
+  # only thing standing between a bad commit and a version number that can never be
+  # reused, because PyPI does not allow republishing one.
+  verify:
+    name: Verify before publishing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group dev --extra dev
+
+      - name: Lint, types, tests
+        run: |
+          uv run ruff check src/ tests/ sweep/
+          uv run ruff format --check src/ tests/ sweep/
+          uv run mypy src/colombian_open_data_mcp/ --no-error-summary
+          uv run pytest -q
+
+      - name: The tag must match the package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(uv run python -c "from colombian_open_data_mcp import __version__; print(__version__)")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "tag v$TAG does not match package version $PKG"
+            exit 1
+          fi
+          echo "OK: tag and package agree on $PKG"
+
+      - name: Build
+        run: uv build
+
+      # A published sdist cannot be recalled. This repository once built one carrying
+      # a local tool's SQLite database, 852 KB that git had never tracked, because the
+      # build does not honour nested .gitignore files. The sdist is an allowlist now;
+      # this asserts the allowlist is still doing its job.
+      - name: The distributions must carry nothing private
+        run: |
+          if tar tzf dist/*.tar.gz | grep -E "code-review|/internal/|\.claude|CLAUDE\.md"; then
+            echo "the source distribution contains files that must not be published"
+            exit 1
+          fi
+          echo "OK: source distribution is clean"
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    name: Publish to PyPI
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # This is what makes Trusted Publishing work, and it is the only credential in
+      # the whole workflow: a short-lived OIDC token minted for this run.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  registry:
+    name: Publish to the MCP Registry
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      # mcp-publisher proves ownership of the io.github.<owner> namespace with a
+      # GitHub OIDC token. Same idea as above: nothing long-lived is stored.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+          ./mcp-publisher --version
+
+      - name: server.json must agree with the tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          JSON=$(python3 -c "import json;print(json.load(open('server.json'))['version'])")
+          if [ "$TAG" != "$JSON" ]; then
+            echo "tag v$TAG does not match server.json version $JSON"
+            exit 1
+          fi
+          ./mcp-publisher validate
+
+      # PyPI is eventually consistent: the registry checks that the package exists,
+      # and a publish that lands seconds after the upload can see a 404.
+      - name: Wait for PyPI to serve the new version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          for i in $(seq 1 30); do
+            if curl -sf "https://pypi.org/pypi/colombian-open-data-mcp/$TAG/json" > /dev/null; then
+              echo "PyPI is serving $TAG"
+              exit 0
+            fi
+            echo "  waiting for PyPI to serve $TAG ($i/30)…"
+            sleep 10
+          done
+          echo "PyPI never served $TAG; not publishing to the registry"
+          exit 1
+
+      - name: Publish
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

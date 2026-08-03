@@ -9,7 +9,17 @@ description = "MCP server for Colombia's open government data — the national d
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Alberto Castillo Aroca" }]
+# Attribution, not ownership transfer. The package and the registry namespace stay
+# under the personal account for continuity with dominican-open-data-mcp, which is
+# already published with eight versions under io.github.alcastaro. OLDS is named
+# because the connector's purpose and the observatory's purpose are the same one,
+# and because a directory reviewer asks who publishes it.
+authors = [
+    { name = "Alberto Castillo Aroca", email = "ai@olds2030.org" },
+]
+maintainers = [
+    { name = "OLDS — Observatorio Latinoamericano de Desarrollo Sostenible", email = "ai@olds2030.org" },
+]
 keywords = [
     "mcp",
     "model-context-protocol",
@@ -64,6 +74,10 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-httpx>=0.30",
+    # Only used to assert the GitHub workflows parse. A release workflow that is
+    # syntactically broken fails at the worst possible moment — after a tag is
+    # pushed, on a version number PyPI will never let us reuse.
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
@@ -74,6 +88,7 @@ Homepage = "https://github.com/alcastaro/colombian-open-data-mcp"
 Repository = "https://github.com/alcastaro/colombian-open-data-mcp"
 Changelog = "https://github.com/alcastaro/colombian-open-data-mcp/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/alcastaro/colombian-open-data-mcp/issues"
+Organization = "https://olds2030.org"
 Portal = "https://www.datos.gov.co"
 "Portal Bogotá" = "https://datosabiertos.bogota.gov.co"
 "Portal Cali" = "https://datos.cali.gov.co"
@@ -141,6 +156,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-httpx>=0.30",
+    "pyyaml>=6.0",
     # Floors match the revs pinned in .pre-commit-config.yaml. Ruff's formatter
     # is not stable across minors, so a contributor resolving an older ruff
     # would reformat files that CI then rejects.

@@ -212,3 +212,41 @@ def test_the_package_description_names_every_portal(repo_files):
         assert any(w in description for w in words), (
             f"{portal.key} is missing from the package description"
         )
+
+
+def test_the_github_workflows_parse():
+    """A broken release workflow fails at the worst possible moment.
+
+    CI failing is loud and cheap. A release workflow with a YAML error fails
+    only after a tag is pushed, on a version number PyPI will never let us
+    reuse — the package must then be republished under a new number for no
+    reason but a typo.
+    """
+    import glob
+
+    import yaml
+
+    workflows = glob.glob(str(ROOT / ".github" / "workflows" / "*.yml"))
+    if not workflows:
+        pytest.skip("workflows not present (installed-package run)")
+    for path in workflows:
+        with open(path, encoding="utf-8") as fh:
+            assert yaml.safe_load(fh) is not None, path
+
+
+def test_the_release_workflow_holds_no_credential():
+    """Publication must use PyPI Trusted Publishing, never a stored token.
+
+    A long-lived API token is a credential that can leak, has to be rotated, and
+    can be committed by accident. Trusted Publishing mints a short-lived one per
+    run through OIDC, so there is nothing to leak. This test fails if anyone
+    reintroduces a token, which is the easy thing to do when a publish breaks at
+    an inconvenient moment.
+    """
+    workflow = ROOT / ".github" / "workflows" / "release.yml"
+    if not workflow.exists():
+        pytest.skip("release workflow not present (installed-package run)")
+    text = workflow.read_text(encoding="utf-8")
+    assert "id-token: write" in text, "Trusted Publishing needs the id-token permission"
+    for forbidden in ("secrets.PYPI", "password:", "api-token", "TWINE_PASSWORD"):
+        assert forbidden not in text, f"the release workflow must not carry {forbidden}"

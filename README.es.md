@@ -173,8 +173,26 @@ Luego agréguelo a su cliente. Claude Code:
 claude mcp add colombia -- uvx colombian-open-data-mcp
 ```
 
-Claude Desktop, Cursor, VS Code, Gemini CLI y otros:
+Claude Desktop, Cursor, VS Code y otros clientes stdio:
 vea **[docs/clients.md](docs/clients.md)**.
+
+### Gemini CLI y Google Antigravity
+
+La MCP Store de Antigravity la cura Google y no tiene vía pública de autopostulación,
+pero añadir el servidor a mano no depende del permiso de nadie y funciona hoy. Ponga
+esto en `~/.gemini/config/mcp_config.json` para tenerlo en todas partes, o en
+`.agents/mcp_config.json` dentro de un espacio de trabajo para tenerlo solo ahí:
+
+```json
+{
+  "mcpServers": {
+    "colombia": {
+      "command": "uvx",
+      "args": ["colombian-open-data-mcp"]
+    }
+  }
+}
+```
 
 No hace falta ninguna clave de API. `SOCRATA_APP_TOKEN` es opcional y solo eleva
 el límite de tasa anónimo del portal nacional.
