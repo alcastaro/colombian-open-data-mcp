@@ -2,8 +2,10 @@
 
 Everything a directory reviewer, or the person filling in a submission portal, needs
 in one place. Written against the requirements published at
-<https://claude.com/docs/connectors/building/submission> and
-<https://claude.com/docs/connectors/building/review-criteria>, read 2026-08-29.
+<https://claude.com/docs/connectors/building/submission>,
+<https://claude.com/docs/connectors/building/review-criteria>,
+<https://developers.openai.com/plugins/app-guidelines> and
+<https://developers.openai.com/plugins/deploy/submission>, all read 2026-08-29.
 
 Nothing here is aspirational: every claim is either measured or checkable from this
 repository.
@@ -161,6 +163,38 @@ above needs none of it.
   a custom connector in Claude. There is no test account to provide, because there is
   nothing to log in to — that is worth stating in the submission rather than leaving
   blank.
+
+## Notes specific to the OpenAI plugin directory
+
+OpenAI's guidelines are stricter than Anthropic's on the one question that matters
+here, and the difference is worth stating up front rather than discovering in review.
+They ask developers to avoid *"unofficial connectors to third-party services,
+including pass-through intermediary software layers"* and not to *"integrate with
+third-party APIs without proper authorization"* — and, unlike Anthropic, they publish
+no exception for public or government open data.
+
+The authorization argument for this server is that Colombian portals publish
+documented public APIs precisely so that anyone may query them, under a law that
+mandates reuse. That is a real argument, not a loophole, but it is ours to make
+rather than a written carve-out.
+
+Two consequences:
+
+- **Submit to Claude first.** Anthropic's criteria contemplate this case in writing
+  ("APIs you legitimately proxy", and a form field for third-party APIs you do not
+  control). An accepted Claude listing is the strongest available evidence for an
+  OpenAI submission. The reverse does not work.
+- **Verify the organisation identity first.** *"Every public submission must use a
+  verified developer or business identity in the OpenAI Platform."* The submitter also
+  needs "Apps Management" write access in the organisation's role. That is
+  paperwork, and it gates everything else.
+
+Also required by OpenAI and already satisfied or not applicable: a production HTTPS
+MCP server URL that a reviewer connects to live; human-readable, specific tool names;
+no personal data, secrets or internal identifiers in tool responses; a published
+privacy policy covering data categories, purposes, recipients, retention and user
+controls; and country availability. Test credentials are required only *"if your MCP
+server requires authentication"*, which this one does not.
 
 ## Verification anyone can repeat
 
