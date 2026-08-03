@@ -15,7 +15,7 @@ They are exposed as separate tool families rather than one tool with a
 differ; see ``internal/reportes/`` for the measurements behind that choice.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 USER_AGENT = (
     f"colombian-open-data-mcp/{__version__} "

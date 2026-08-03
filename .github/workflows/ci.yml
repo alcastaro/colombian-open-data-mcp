@@ -88,12 +88,12 @@ jobs:
           # source does not name, and that is only defensible because the
           # address comes from a portal catalogue rather than from an argument.
           for t in tools:
-              props = set((t.inputSchema or {}).get('properties') or {})
+              props = set((t.input_schema or {}).get('properties') or {})
               assert not (props & {'url', 'uri', 'address', 'endpoint', 'host'}), t.name
           blank = [t.name for t in tools if not (t.description or '').strip()]
           assert not blank, f'tools with no description: {blank}'
-          assert all(t.annotations and t.annotations.readOnlyHint for t in tools)
-          opts = mcp._mcp_server.create_initialization_options()
+          assert all(t.annotations and t.annotations.read_only_hint for t in tools)
+          opts = mcp._lowlevel_server.create_initialization_options()
           assert opts.server_version == __version__, opts.server_version
           print(f'OK: {len(names)} tools, serverInfo.version={opts.server_version}')
           "

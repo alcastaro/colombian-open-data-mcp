@@ -1,4 +1,4 @@
-"""colombian-open-data-mcp — FastMCP server for Colombia's open government data.
+"""colombian-open-data-mcp — MCP server for Colombia's open government data.
 
 Two portals, two platforms, two tool families:
 
@@ -29,7 +29,7 @@ import logging
 import sys
 from typing import Annotated, Any, Literal
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
@@ -42,13 +42,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("colombian-open-data-mcp")
 
-mcp = FastMCP("colombian-open-data-mcp")
-
-# FastMCP takes no `version` argument, so the low-level server falls back to
-# the installed mcp SDK's version — which means every client's `initialize`
-# handshake reported the SDK version (e.g. "1.27.1") as ours. Setting it here
-# is the only place the real package version reaches the wire.
-mcp._mcp_server.version = __version__
+# `version` is a real constructor argument in SDK v2. Under v1 it was not, and
+# the low-level server fell back to the installed SDK's version — so every
+# client's `initialize` handshake reported "1.27.1" as ours, and the fix was to
+# reach past the wrapper and assign `_mcp_server.version`. That reach-around is
+# gone; a test still asserts the handshake reports this package's version,
+# because the bug was invisible from inside the server.
+mcp = MCPServer("colombian-open-data-mcp", version=__version__)
 
 # Singletons; reused across all tool calls so connections stay warm.
 _client = socrata.SocrataClient()
@@ -61,7 +61,7 @@ def _ro(title: str) -> ToolAnnotations:
     Declaring that lets a host skip confirmation prompts it would otherwise
     raise for a tool whose effects it cannot infer.
     """
-    return ToolAnnotations(title=title, readOnlyHint=True, openWorldHint=True)
+    return ToolAnnotations(title=title, read_only_hint=True, open_world_hint=True)
 
 
 _NATIONAL_HINT = (

@@ -82,9 +82,9 @@ async def test_every_city_tool_accepts_every_portal():
     tools = await _tools()
     for name in (n for n in tools if n.startswith("city_")):
         enum = (
-            tools[name].inputSchema["$defs"]["CityKey"]["enum"]
-            if "$defs" in tools[name].inputSchema
-            else tools[name].inputSchema["properties"]["city"]["enum"]
+            tools[name].input_schema["$defs"]["CityKey"]["enum"]
+            if "$defs" in tools[name].input_schema
+            else tools[name].input_schema["properties"]["city"]["enum"]
         )
         assert sorted(enum) == sorted(ckan.PORTALS), name
 
@@ -93,8 +93,8 @@ async def test_every_tool_is_annotated_read_only():
     for name, tool in (await _tools()).items():
         ann = tool.annotations
         assert ann is not None, f"{name} has no annotations"
-        assert ann.readOnlyHint is True, f"{name} is not marked read-only"
-        assert ann.openWorldHint is True, f"{name} is not marked open-world"
+        assert ann.read_only_hint is True, f"{name} is not marked read-only"
+        assert ann.open_world_hint is True, f"{name} is not marked open-world"
         assert ann.title, f"{name} has no human title"
 
 
@@ -121,7 +121,7 @@ async def test_city_tool_descriptions_name_every_portal():
 async def test_city_tools_point_at_their_own_siblings():
     """A parameter description naming a tool that does not exist sends the
     model on a round trip that cannot succeed."""
-    schema = (await _tools())["city_search_datasets"].inputSchema["properties"]
+    schema = (await _tools())["city_search_datasets"].input_schema["properties"]
     assert "city_list_organizations" in schema["organization"]["description"]
     assert "city_list_groups" in schema["group"]["description"]
 
@@ -134,7 +134,7 @@ async def test_every_city_tool_takes_a_city_parameter():
     """
     tools = await _tools()
     for name in (n for n in tools if n.startswith("city_")):
-        schema = tools[name].inputSchema
+        schema = tools[name].input_schema
         assert "city" in (schema.get("properties") or {}), name
         assert "city" in (schema.get("required") or []), f"{name} does not require a city"
 
@@ -156,7 +156,7 @@ async def test_no_datastore_aggregation_tool_is_offered_for_the_city_portals():
 
 async def test_national_search_can_reach_saved_views():
     """2,197 queryable saved views were invisible while `only` was hardcoded."""
-    schema = (await _tools())["search_datasets"].inputSchema["properties"]
+    schema = (await _tools())["search_datasets"].input_schema["properties"]
     assert "asset_type" in schema
     assert "filter" in schema["asset_type"]["enum"]
     assert "any" in schema["asset_type"]["enum"]

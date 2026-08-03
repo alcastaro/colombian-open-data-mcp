@@ -67,12 +67,18 @@ def test_both_clients_send_the_same_user_agent():
 def test_serverinfo_reports_package_version_not_sdk_version():
     """serverInfo.version must be the package version.
 
-    FastMCP takes no `version` argument, so the low-level server defaults to
-    the installed mcp SDK version and clients saw e.g. "1.27.1" as ours.
+    Under SDK v1 this was a real bug and an invisible one: FastMCP took no
+    `version` argument, the low-level server defaulted to the installed SDK's
+    version, and every client's handshake reported e.g. "1.27.1" as ours. The
+    fix was to reach past the wrapper and assign `_mcp_server.version`.
+
+    SDK v2 takes `version` in the constructor, so the reach-around is gone —
+    but the assertion stays, because nothing inside the server ever showed the
+    symptom. Only a client did.
     """
     from colombian_open_data_mcp.server import mcp
 
-    opts = mcp._mcp_server.create_initialization_options()
+    opts = mcp._lowlevel_server.create_initialization_options()
     assert opts.server_version == __version__
 
 
@@ -89,15 +95,18 @@ def test_console_script_matches_distribution_name(repo_files):
 
 
 def test_mcp_dependency_has_upper_bound(repo_files):
-    """mcp 2.x removed `mcp.server.fastmcp`; an unbounded pin breaks installs.
+    """The mcp dependency must always name a major it cannot cross.
 
-    Verified against the live index: `pip install mcp==2.1.1` then importing
-    `mcp.server.fastmcp` raises ModuleNotFoundError. The lockfile protects this
-    checkout, not anyone installing the published wheel.
+    This is not hypothetical caution. SDK 2.0 renamed FastMCP to MCPServer and
+    replaced `mcp.server.fastmcp` with a stub that raises ModuleNotFoundError —
+    verified against the live index — and this server was pinned below 2 for
+    exactly that reason until it migrated. A major bump can do the same again,
+    and the lockfile protects this checkout, never someone installing the
+    published wheel.
     """
     pyproject_text, _ = repo_files
-    assert re.search(r'"mcp>=[\d.]+,<2"', pyproject_text), (
-        "the mcp dependency must keep an upper bound until the SDK v2 migration lands"
+    assert re.search(r'"mcp>=[\d.]+,<\d+"', pyproject_text), (
+        "the mcp dependency must keep an upper bound on the major version"
     )
 
 
@@ -154,7 +163,7 @@ def test_no_tool_accepts_a_url():
     from colombian_open_data_mcp.server import mcp
 
     for tool in asyncio.run(mcp.list_tools()):
-        properties = set(tool.inputSchema.get("properties") or {})
+        properties = set(tool.input_schema.get("properties") or {})
         assert not (properties & {"url", "uri", "address", "endpoint", "host"}), tool.name
 
 

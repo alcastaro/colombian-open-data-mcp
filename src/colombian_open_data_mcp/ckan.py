@@ -174,7 +174,7 @@ CARTAGENA = CkanPortal(
 
 PORTALS = {p.key: p for p in (BOGOTA, CALI, VALLE, CARTAGENA)}
 
-# The accepted values of the ``city`` parameter, spelled out so FastMCP puts a
+# The accepted values of the ``city`` parameter, spelled out so the SDK puts a
 # real enum in the tool schema instead of an open string. It has to be a literal
 # expression — a Literal built from ``tuple(PORTALS)`` is not something a type
 # checker can read — so ``test_version_sync`` asserts the two stay in step and

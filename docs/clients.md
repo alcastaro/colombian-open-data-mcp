@@ -133,8 +133,14 @@ logged, and never used for the city portals — CKAN has no equivalent.
 Your `uvx` cache is stale. `uvx --refresh colombian-open-data-mcp`.
 
 **`ModuleNotFoundError: No module named 'mcp.server.fastmcp'`**
-You are on a build older than 0.2.0 that resolved MCP SDK 2.x. Upgrade:
+A build older than 0.5.0 that resolved MCP SDK 2.x. Those versions used the v1
+import path, which 2.0 replaced with a stub. Upgrade:
 `pip install -U colombian-open-data-mcp`.
+
+**`ImportError: cannot import name 'MCPServer'`**
+The opposite case: 0.5.0 and later need MCP SDK 2.1 or newer, and something in
+your environment is holding `mcp` below 2. `uvx` builds an isolated environment
+and will not hit this; a shared virtualenv with an older pin will.
 
 **A city tool returns an error mentioning a WAF.**
 Bogotá and Cali both refuse some programmatic requests by their own rules. It is

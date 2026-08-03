@@ -25,7 +25,7 @@ the real coverage figures rather than a generic sentence.
 Two implementation constraints, both learned the hard way:
 
 1. **This module deliberately omits ``from __future__ import annotations``.**
-   With it, every annotation becomes a source string that FastMCP later
+   With it, every annotation becomes a source string that the SDK later
    evaluates against *module* globals. The annotations here reference
    :data:`ckan.CityKey` through the module object, which survives that, but the
    earlier per-portal factory interpolated a closure variable and produced
@@ -43,7 +43,7 @@ import logging
 from collections.abc import Callable
 from typing import Annotated, Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
@@ -94,16 +94,16 @@ CITY_PARAM_DESC = (
 )
 
 # Module level on purpose. A type alias defined inside ``register`` is a local
-# variable, and neither mypy nor FastMCP's schema builder accepts a local in an
+# variable, and neither mypy nor the SDK's schema builder accepts a local in an
 # annotation position — the first attempt did exactly that and mypy called it
 # "Variable not allowed in type expression". Here it is a real alias that
 # resolves against module globals, which is also the only form that survives
-# FastMCP evaluating annotations lazily.
+# the SDK evaluating annotations lazily.
 City = Annotated[ckan.CityKey, Field(description=CITY_PARAM_DESC)]
 
 
 def register(
-    mcp: FastMCP,
+    mcp: MCPServer,
     clients: dict[str, ckan.CkanClient],
     esri_clients: dict[str, esri.EsriClient],
     *,

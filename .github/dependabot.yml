@@ -7,9 +7,10 @@ updates:
     groups:
       dev-deps:
         patterns: ["ruff", "mypy", "pytest*"]
-    # The mcp pin has a deliberate upper bound (SDK 2.x removed the FastMCP
-    # import path). Let Dependabot see minor bumps but never propose crossing
-    # the major, which would open a PR that cannot pass CI.
+    # The mcp pin keeps a deliberate upper bound on the major. SDK 2.0 is the
+    # precedent: it renamed FastMCP to MCPServer and replaced the old import
+    # path with a stub that raises. Let Dependabot see minor bumps but never
+    # propose crossing a major, which would open a PR that cannot pass CI.
     ignore:
       - dependency-name: "mcp"
         update-types: ["version-update:semver-major"]

@@ -5,6 +5,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-08-29
+
+Migrated to **MCP Python SDK v2**. No behaviour changes; the wire protocol is
+identical. This is a dependency and API move made before the first publish, so
+that the package ships current rather than pinned below a major it would have
+had to cross later.
+
+### Changed
+
+- **`mcp>=1.9.0,<2` became `mcp>=2.1,<3`.** SDK 2.0 renamed `FastMCP` to
+  `MCPServer` and replaced `mcp.server.fastmcp` with a stub that raises a
+  ModuleNotFoundError naming the migration guide. Every call site moved:
+  `mcp.server.mcpserver.MCPServer`, `_mcp_server` → `_lowlevel_server`, and the
+  model fields the tests read are snake_case now (`inputSchema` →
+  `input_schema`, `readOnlyHint` → `read_only_hint`). The names on the wire are
+  unchanged — pydantic still serialises them camelCase — so no client sees a
+  difference.
+- **The `serverInfo.version` workaround is gone.** v1's FastMCP took no
+  `version` argument, so the low-level server reported the installed SDK's
+  version as ours and the fix was to reach past the wrapper and assign
+  `_mcp_server.version`. v2 takes `version` in the constructor. The test stays,
+  because that bug was invisible from inside the server — only a client ever
+  saw it.
+- The upper bound stays, now on the 3.x major, for the reason 2.0 demonstrated:
+  a major can remove the import path this server is built on, and the lockfile
+  protects this checkout rather than anyone installing the published wheel.
+
+### Verified
+
+536 hermetic tests and 34 live tests pass on the new SDK across Python 3.10,
+3.11, 3.12 and 3.13, with the tool surface unchanged at 24 tools over five
+portals and `server.json` still validating against the registry.
+
 ## [0.4.0] — 2026-08-29
 
 Five portals, and two new ways to reach data no DataStore holds. **24 tools**
