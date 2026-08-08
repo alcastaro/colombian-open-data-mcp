@@ -250,3 +250,37 @@ def test_the_release_workflow_holds_no_credential():
     assert "id-token: write" in text, "Trusted Publishing needs the id-token permission"
     for forbidden in ("secrets.PYPI", "password:", "api-token", "TWINE_PASSWORD"):
         assert forbidden not in text, f"the release workflow must not carry {forbidden}"
+
+
+def test_the_privacy_notes_name_every_host_the_server_can_reach():
+    """A privacy policy that understates network reach is the fastest way to
+    fail a directory review, and it drifts silently.
+
+    Through 0.3 this server only contacted hosts written in its own source, and
+    both privacy notes said exactly that. Version 0.4 added ESRI queries and
+    tabular downloads, which follow addresses that come out of a portal's
+    catalogue — so the claim stopped being true while the documents still made
+    it. This test fails if a portal is added without the notes following, and
+    if the retired "cannot be directed to a fourth host" claim ever returns.
+    """
+    from colombian_open_data_mcp import ckan
+
+    notes = {
+        name: (ROOT / "docs" / name).read_text(encoding="utf-8")
+        for name in ("PRIVACY.md", "PRIVACIDAD.md")
+    }
+    for name, text in notes.items():
+        for portal in ckan.PORTALS.values():
+            assert portal.base_url.split("//")[-1].rstrip("/") in text, (
+                f"docs/{name} does not name {portal.key}'s host"
+            )
+        assert "www.datos.gov.co" in text, f"docs/{name} omits the national portal"
+        assert "netguard" in text, (
+            f"docs/{name} does not mention the network policy that bounds "
+            "which catalogue-supplied hosts are reachable"
+        )
+        for retired in ("fourth host", "cuarto host"):
+            assert retired not in text, (
+                f"docs/{name} still claims the reachable host set is closed; "
+                "it has not been since 0.4"
+            )

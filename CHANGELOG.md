@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Both privacy notes described the 0.3 network model, not the current one.**
+  They named two portals and three fixed hosts, and stated that the server
+  "cannot be directed to a fourth host". That stopped being true in 0.4, when
+  ESRI queries and tabular downloads began following addresses supplied by a
+  portal's catalogue. The notes now list all five portals, describe the two
+  tool families that reach further and why, and state the two things that bound
+  that reach — no tool accepting a URL, and `netguard.py` validating every
+  request including redirect hops. The `SOCRATA_APP_TOKEN` paragraph now says
+  the token is never sent to any of the four territorial portals, to a map
+  service, or to a file host, rather than naming Bogotá alone. A test in
+  `tests/test_version_sync.py` fails if a portal is added without the notes
+  following, or if the retired claim returns.
+
 ## [0.5.0] — 2026-08-29
 
 ### Added
