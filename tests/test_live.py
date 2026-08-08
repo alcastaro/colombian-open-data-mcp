@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from colombian_open_data_mcp import ckan, socrata
+from colombian_open_data_mcp import ckan, socrata, soql
 
 pytestmark = pytest.mark.live
 
@@ -22,6 +22,39 @@ async def _client():
     c = socrata.SocrataClient()
     yield c
     await c.close()
+
+
+async def test_live_raw_soql_reaches_the_portal(_client):
+    """The gap that let a broken tool ship.
+
+    Socrata answers HTTP 400 to ``$query`` sent alongside any other ``$``
+    parameter, so passing the row cap as ``$limit`` made every raw-SoQL call
+    fail — in production only, because the hermetic tests mock the HTTP layer
+    and this was the one tool with no live test. The cap now lives inside the
+    query text. This test sends the real combination to the real portal.
+    """
+    # IRCA for human consumption, published by the Instituto Nacional de Salud.
+    query = soql.enforce_row_cap(
+        "SELECT departamento, count(*) AS n GROUP BY departamento ORDER BY n DESC",
+        5,
+    )
+    rows = await _client.resource_query("nxt2-39c3", {"$query": query})
+    assert 0 < len(rows) <= 5
+    assert "departamento" in rows[0]
+    assert int(rows[0]["n"]) > 0
+
+
+async def test_live_raw_soql_cap_beside_the_query_is_what_the_portal_rejects(_client):
+    """Pins *why* the cap moved, so nobody moves it back.
+
+    If Socrata ever starts accepting the combination this test fails, and the
+    workaround can be reconsidered deliberately rather than by accident.
+    """
+    with pytest.raises(socrata.SocrataError):
+        await _client.resource_query(
+            "nxt2-39c3",
+            {"$query": "SELECT departamento LIMIT 5", "$limit": "5"},
+        )
 
 
 async def test_live_catalog_search_returns_hits(_client):

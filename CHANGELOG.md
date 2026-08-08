@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`query_dataset_soql` never worked against a live portal.** It sent the row
+  cap as `$limit` beside `$query`, and Socrata refuses that combination with
+  HTTP 400 — *"If $query is used, all options must be specified in the query"*.
+  So the one tool offering full SoQL failed 100% of the time in production and
+  0% of the time in CI, because the hermetic tests mock the HTTP layer and this
+  was the only tool with no live test. The cap now travels inside the query
+  text via `soql.enforce_row_cap()`, which honours a caller's own smaller
+  `LIMIT`, lowers a larger one, and preserves a trailing `OFFSET`. Six hermetic
+  tests cover the rewrite and two live tests cover the portal round-trip,
+  including one that fails if Socrata ever starts accepting the combination.
+
 - **Both privacy notes described the 0.3 network model, not the current one.**
   They named two portals and three fixed hosts, and stated that the server
   "cannot be directed to a fourth host". That stopped being true in 0.4, when

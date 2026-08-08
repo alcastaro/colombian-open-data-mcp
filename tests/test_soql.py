@@ -258,3 +258,43 @@ def test_compose_all_clauses():
         "$offset": "20",
         "$q": "texto",
     }
+
+
+# ─── Row cap inside the query text ────────────────────────────────────────────
+
+
+class TestEnforceRowCap:
+    """Socrata answers HTTP 400 to ``$query`` combined with any other ``$``
+    parameter, so the wrapper's row cap cannot ride beside it as ``$limit``.
+
+    This was a live-only failure: every hermetic test mocked the HTTP layer, so
+    the parameter combination was never sent to a real portal, and
+    ``query_dataset_soql`` was the one tool with no live test. It failed 100% of
+    the time in production and 0% of the time in CI.
+    """
+
+    def test_a_query_without_a_limit_gets_one(self):
+        assert soql.enforce_row_cap("SELECT departamento", 200) == ("SELECT departamento LIMIT 200")
+
+    def test_a_caller_limit_below_the_cap_is_honoured(self):
+        assert soql.enforce_row_cap("SELECT a LIMIT 10", 200) == "SELECT a LIMIT 10"
+
+    def test_a_caller_limit_above_the_cap_is_lowered(self):
+        assert soql.enforce_row_cap("SELECT a LIMIT 50000", 200) == "SELECT a LIMIT 200"
+
+    def test_a_trailing_offset_survives_the_rewrite(self):
+        """Dropping OFFSET would silently return a different page of rows."""
+        assert soql.enforce_row_cap("SELECT a LIMIT 900 OFFSET 40", 200) == (
+            "SELECT a LIMIT 200 OFFSET 40"
+        )
+
+    def test_the_keyword_match_is_case_insensitive(self):
+        assert soql.enforce_row_cap("select a limit 2 offset 7", 200) == (
+            "select a limit 2 offset 7"
+        )
+
+    def test_a_limit_that_is_not_trailing_is_left_alone(self):
+        """``LIMIT`` inside a string literal is not the query's row limit, so
+        the cap is appended rather than rewritten in place."""
+        out = soql.enforce_row_cap("SELECT a WHERE b = 'LIMIT 5'", 200)
+        assert out == "SELECT a WHERE b = 'LIMIT 5' LIMIT 200"

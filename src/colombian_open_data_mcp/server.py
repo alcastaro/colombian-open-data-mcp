@@ -437,7 +437,10 @@ async def query_dataset_soql(
     except soql.SoqlError as e:
         return {"error": str(e), "hint": "Only read-only SELECT-style SoQL is accepted."}
 
-    params = {"$query": cleaned, "$limit": str(limit)}
+    # Socrata rejects $query alongside any other $ parameter, so the row cap
+    # goes inside the query text rather than beside it.
+    cleaned = soql.enforce_row_cap(cleaned, limit)
+    params = {"$query": cleaned}
     try:
         rows = await _client.resource_query(id, params)
     except socrata.SocrataError as e:

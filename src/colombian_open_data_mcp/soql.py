@@ -242,6 +242,38 @@ def validate_soql(soql: str) -> str:
     return s
 
 
+#: A trailing ``LIMIT n``, optionally followed by ``OFFSET m``. Anchored to the
+#: end so a ``LIMIT`` inside a string literal earlier in the query is ignored.
+_TRAILING_LIMIT = re.compile(
+    r"\blimit\s+(\d+)\s*(?:\boffset\s+\d+\s*)?$",
+    re.IGNORECASE,
+)
+
+
+def enforce_row_cap(soql: str, cap: int) -> str:
+    """Return ``soql`` with the row cap expressed inside the query text.
+
+    Socrata refuses ``$query`` combined with any other ``$`` parameter —
+    ``"If $query is used, all options must be specified in the query"``, HTTP
+    400. So the cap cannot travel as ``$limit`` beside it the way it does for
+    the structured tools; it has to be part of the SoQL itself.
+
+    A caller's own ``LIMIT`` is honoured when it is at or below the cap, and
+    lowered when it is above, so the wrapper's guarantee holds either way. A
+    query with no ``LIMIT`` gets one appended. An ``OFFSET`` that follows the
+    ``LIMIT`` is preserved, because dropping it would silently change which
+    rows come back.
+    """
+    s = soql.strip()
+    m = _TRAILING_LIMIT.search(s)
+    if m is None:
+        return f"{s} LIMIT {int(cap)}"
+    if int(m.group(1)) <= cap:
+        return s
+    start, end = m.span(1)
+    return f"{s[:start]}{int(cap)}{s[end:]}"
+
+
 # ─── Compose query-string params from a structured spec ───────────────────────
 
 
