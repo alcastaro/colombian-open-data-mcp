@@ -42,6 +42,40 @@ RESOURCE_API_BASE = f"https://{PORTAL_HOST}/resource"
 
 DEFAULT_TIMEOUT = 20.0
 
+#: Operator override for the request timeout, in seconds.
+TIMEOUT_ENV = "CO_MCP_TIMEOUT"
+
+#: Upper bound on the override. A request that has not answered in five minutes
+#: is not going to, and an unbounded value would let one call hang a stdio
+#: session indefinitely with the client unable to tell why.
+MAX_TIMEOUT = 300.0
+
+
+def request_timeout() -> float:
+    """Seconds to wait for a portal response.
+
+    Twenty seconds is right for the catalogue and for most datasets, and wrong
+    for the few that are genuinely large: a ``median()`` over SECOP II's six
+    million contracts is a legitimate question that takes the portal longer
+    than that to answer, and the default turns it into a permanent failure.
+
+    Read on every call rather than cached, so a session can be retuned without
+    a restart. An unparseable or out-of-range value falls back to the default
+    rather than raising — a bad environment variable should not stop the server
+    from starting.
+    """
+    raw = os.environ.get(TIMEOUT_ENV)
+    if not raw:
+        return DEFAULT_TIMEOUT
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_TIMEOUT
+    if value <= 0 or value > MAX_TIMEOUT:
+        return DEFAULT_TIMEOUT
+    return value
+
+
 # Output trimming so single calls never blow up the LLM context.
 DESC_TRUNC = 300
 NOTES_TRUNC = 300
@@ -117,7 +151,7 @@ class SocrataClient:
                 headers["X-App-Token"] = self._app_token
             kwargs: dict[str, Any] = dict(
                 headers=headers,
-                timeout=DEFAULT_TIMEOUT,
+                timeout=request_timeout(),
                 follow_redirects=True,
             )
             if _SSL_CTX is not None:
@@ -139,7 +173,10 @@ class SocrataClient:
         try:
             r = await get_with_retries(client, url, self._clean(params or {}))
         except httpx.TimeoutException as e:
-            raise SocrataError(f"timeout calling {url} (>{DEFAULT_TIMEOUT}s)") from e
+            raise SocrataError(
+                f"timeout calling {url} (>{request_timeout()}s). "
+                f"Set {TIMEOUT_ENV} to allow longer for very large datasets."
+            ) from e
         except httpx.HTTPError as e:
             raise SocrataError(f"network error calling {url}: {e}") from e
 

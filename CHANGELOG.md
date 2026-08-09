@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   server-side, and a 462-row table and a 5.9-million-row one looked identical
   before.
 
+### Added
+
+- **`CO_MCP_TIMEOUT`, an operator override for the request timeout.** Twenty
+  seconds is right for the catalogue and wrong for the few datasets that are
+  genuinely large: a `median()` over SECOP II's 5.98 million contracts answers
+  in 81 seconds, and a grouped median in 45, so the fixed default turned two
+  legitimate questions into permanent failures. The value is bounded at 300
+  seconds — unbounded would let one call hang a stdio session with no way for
+  the client to tell why — and an unusable value falls back to the default
+  rather than stopping the server from starting. The timeout error message now
+  names the variable instead of being a dead end.
+
 - **Both privacy notes described the 0.3 network model, not the current one.**
   They named two portals and three fixed hosts, and stated that the server
   "cannot be directed to a fourth host". That stopped being true in 0.4, when

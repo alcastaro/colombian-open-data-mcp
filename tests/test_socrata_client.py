@@ -295,3 +295,36 @@ async def test_client_is_recreated_after_close(client, httpx_mock):
     await client.close()
     await client.catalog_search(query="b")
     assert client._client is not None
+
+
+class TestRequestTimeout:
+    """Twenty seconds is right for the catalogue and wrong for the few datasets
+    that are genuinely large. A ``median()`` over SECOP II's six million
+    contracts answers in roughly twenty-one seconds, which the fixed default
+    turned into a permanent failure rather than a slow success."""
+
+    def test_the_default_applies_when_the_variable_is_unset(self, monkeypatch):
+        monkeypatch.delenv(socrata.TIMEOUT_ENV, raising=False)
+        assert socrata.request_timeout() == socrata.DEFAULT_TIMEOUT
+
+    def test_an_operator_can_raise_it(self, monkeypatch):
+        monkeypatch.setenv(socrata.TIMEOUT_ENV, "90")
+        assert socrata.request_timeout() == 90.0
+
+    @pytest.mark.parametrize("bad", ["0", "-5", "abc", "", "999999"])
+    def test_an_unusable_value_falls_back_rather_than_raising(self, monkeypatch, bad):
+        """A bad environment variable must not stop the server from starting."""
+        monkeypatch.setenv(socrata.TIMEOUT_ENV, bad)
+        assert socrata.request_timeout() == socrata.DEFAULT_TIMEOUT
+
+    def test_the_ceiling_is_enforced(self, monkeypatch):
+        """Unbounded would let one call hang a stdio session with no way for
+        the client to tell why."""
+        monkeypatch.setenv(socrata.TIMEOUT_ENV, str(socrata.MAX_TIMEOUT + 1))
+        assert socrata.request_timeout() == socrata.DEFAULT_TIMEOUT
+        monkeypatch.setenv(socrata.TIMEOUT_ENV, str(socrata.MAX_TIMEOUT))
+        assert socrata.request_timeout() == socrata.MAX_TIMEOUT
+
+    def test_the_timeout_message_names_the_variable(self):
+        """A timeout that does not say what to do about it is a dead end."""
+        assert socrata.TIMEOUT_ENV == "CO_MCP_TIMEOUT"

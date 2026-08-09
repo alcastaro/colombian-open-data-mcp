@@ -197,6 +197,13 @@ esto en `~/.gemini/config/mcp_config.json` para tenerlo en todas partes, o en
 No hace falta ninguna clave de API. `SOCRATA_APP_TOKEN` es opcional y solo eleva
 el límite de tasa anónimo del portal nacional.
 
+Otras dos variables de entorno ajustan el comportamiento y ninguna es
+obligatoria: `CO_MCP_TIMEOUT` fija cuántos segundos esperar la respuesta del
+portal (20 por omisión, 300 como máximo) — conviene subirla para agregaciones
+sobre los datasets nacionales más grandes, donde una mediana sobre seis
+millones de filas tarda más de un minuto — y `CO_MCP_NETGUARD` selecciona la
+política de red, documentada en [`SECURITY.md`](SECURITY.md).
+
 ## Ejemplos
 
 Pregúntele a su asistente, en español o en inglés:

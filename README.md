@@ -192,6 +192,13 @@ but adding the server by hand needs nobody's permission and works today. Put thi
 No API key is required. `SOCRATA_APP_TOKEN` is optional and only raises the
 national portal's anonymous rate limit.
 
+Two other environment variables tune behaviour and neither is required:
+`CO_MCP_TIMEOUT` sets how long to wait for a portal response in seconds
+(default 20, maximum 300) — worth raising for aggregations over the largest
+national datasets, where a median across six million rows takes over a minute
+— and `CO_MCP_NETGUARD` selects the network policy, documented in
+[`SECURITY.md`](SECURITY.md).
+
 ## Examples
 
 Ask your assistant, in Spanish or English:
