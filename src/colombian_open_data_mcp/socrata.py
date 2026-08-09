@@ -407,6 +407,38 @@ def format_catalog_response(data: dict) -> dict:
     }
 
 
+def _row_count(view: dict) -> int | None:
+    """How many rows the dataset holds, or None when the portal won't say.
+
+    Socrata's view metadata has no top-level row count — ``rowsCount`` is
+    simply absent on datos.gov.co — but every profiled column carries a
+    ``cachedContents.count`` that matches ``count(*)`` exactly. Taking the
+    largest across columns tolerates the columns that carry no profile at all.
+
+    This matters more than it looks: without it a model has no way to tell a
+    460-row table from a six-million-row one, and that is exactly the choice
+    between previewing a dataset and aggregating it server-side.
+    """
+    counts: list[int] = []
+    for c in view.get("columns") or []:
+        raw = (c.get("cachedContents") or {}).get("count")
+        if raw is None:
+            continue
+        try:
+            counts.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if counts:
+        return max(counts)
+    top = view.get("rowsCount")
+    if top is None:
+        return None
+    try:
+        return int(top)
+    except (TypeError, ValueError):
+        return None
+
+
 def format_view(view: dict) -> dict:
     """Format the full view metadata into a compact dict."""
     columns = view.get("columns") or []
@@ -420,7 +452,7 @@ def format_view(view: dict) -> dict:
         "owner": (view.get("owner") or {}).get("displayName"),
         "created_at": view.get("createdAt"),
         "updated_at": view.get("rowsUpdatedAt") or view.get("updatedAt"),
-        "row_count": view.get("rowsCount") or (view.get("columns") and None),
+        "row_count": _row_count(view),
         "license": (view.get("license") or {}).get("name"),
         "license_url": (view.get("license") or {}).get("termsLink"),
         "attribution": view.get("attribution"),

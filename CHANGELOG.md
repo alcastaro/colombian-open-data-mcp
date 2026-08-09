@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LIMIT`, lowers a larger one, and preserves a trailing `OFFSET`. Six hermetic
   tests cover the rewrite and two live tests cover the portal round-trip,
   including one that fails if Socrata ever starts accepting the combination.
+- **`get_dataset` reported `row_count: null` for every dataset on the portal.**
+  It read a top-level `rowsCount` that datos.gov.co never sends, so the field
+  was structurally dead. The count now comes from the column profile
+  (`cachedContents.count`), which matches `count(*)` exactly on every dataset
+  checked. This decides whether a model previews a table or aggregates it
+  server-side, and a 462-row table and a 5.9-million-row one looked identical
+  before.
 
 - **Both privacy notes described the 0.3 network model, not the current one.**
   They named two portals and three fixed hosts, and stated that the server

@@ -135,3 +135,47 @@ def test_format_view_compact():
     assert v["url"] == "https://www.datos.gov.co/d/abcd-1234"
     assert v["columns"][0]["field_name"] == "depto"
     assert len(v["description"]) <= 301
+
+
+class TestRowCount:
+    """``get_dataset`` used to report ``row_count: None`` for every dataset on
+    the portal, because ``format_view`` read a top-level ``rowsCount`` that
+    datos.gov.co never sends. The size of a table is what decides between
+    previewing it and aggregating it server-side, so a model that cannot see it
+    is choosing blind."""
+
+    def test_the_count_comes_from_the_column_profile(self):
+        view = {
+            "id": "abcd-1234",
+            "columns": [
+                {"fieldName": "a", "cachedContents": {"count": "19160"}},
+                {"fieldName": "b", "cachedContents": {"count": "19160"}},
+            ],
+        }
+        assert socrata.format_view(view)["row_count"] == 19160
+
+    def test_columns_without_a_profile_do_not_lower_the_count(self):
+        view = {
+            "id": "abcd-1234",
+            "columns": [
+                {"fieldName": "a"},
+                {"fieldName": "b", "cachedContents": {"count": "462"}},
+            ],
+        }
+        assert socrata.format_view(view)["row_count"] == 462
+
+    def test_a_top_level_count_is_the_fallback(self):
+        view = {"id": "abcd-1234", "rowsCount": 7, "columns": [{"fieldName": "a"}]}
+        assert socrata.format_view(view)["row_count"] == 7
+
+    def test_no_profile_anywhere_reports_none_rather_than_zero(self):
+        """Zero would be a claim about the data; None says the portal didn't say."""
+        view = {"id": "abcd-1234", "columns": [{"fieldName": "a"}]}
+        assert socrata.format_view(view)["row_count"] is None
+
+    def test_a_non_numeric_count_is_ignored(self):
+        view = {
+            "id": "abcd-1234",
+            "columns": [{"fieldName": "a", "cachedContents": {"count": "n/a"}}],
+        }
+        assert socrata.format_view(view)["row_count"] is None
