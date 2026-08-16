@@ -298,3 +298,25 @@ class TestEnforceRowCap:
         the cap is appended rather than rewritten in place."""
         out = soql.enforce_row_cap("SELECT a WHERE b = 'LIMIT 5'", 200)
         assert out == "SELECT a WHERE b = 'LIMIT 5' LIMIT 200"
+
+
+class TestRawQueriesRefuseCommentMarkers:
+    """``quote_ident`` has always refused these; raw queries now do too, because
+    ``enforce_row_cap`` appends its LIMIT to the end of the text and a comment
+    marker earlier in the query could swallow it."""
+
+    @pytest.mark.parametrize("bad", ["SELECT a LIMIT 5000 -- x", "SELECT a /* x */", "SELECT a */"])
+    def test_comment_markers_are_rejected(self, bad):
+        with pytest.raises(soql.SoqlError, match="forbidden sequence"):
+            soql.validate_soql(bad)
+
+    def test_a_double_hyphen_inside_a_literal_is_still_rejected(self):
+        """Deliberate: the validator does not parse string literals, so it
+        cannot tell a comment from a literal and refuses both. A model that
+        needs the literal can use ``filter_dataset`` instead."""
+        with pytest.raises(soql.SoqlError):
+            soql.validate_soql("SELECT a WHERE b = 'x--y'")
+
+    def test_the_row_cap_cannot_be_commented_out(self):
+        with pytest.raises(soql.SoqlError):
+            soql.enforce_row_cap(soql.validate_soql("SELECT a LIMIT 5000 -- "), 200)

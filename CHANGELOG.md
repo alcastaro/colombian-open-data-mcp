@@ -5,27 +5,7 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **`query_dataset_soql` never worked against a live portal.** It sent the row
-  cap as `$limit` beside `$query`, and Socrata refuses that combination with
-  HTTP 400 — *"If $query is used, all options must be specified in the query"*.
-  So the one tool offering full SoQL failed 100% of the time in production and
-  0% of the time in CI, because the hermetic tests mock the HTTP layer and this
-  was the only tool with no live test. The cap now travels inside the query
-  text via `soql.enforce_row_cap()`, which honours a caller's own smaller
-  `LIMIT`, lowers a larger one, and preserves a trailing `OFFSET`. Six hermetic
-  tests cover the rewrite and two live tests cover the portal round-trip,
-  including one that fails if Socrata ever starts accepting the combination.
-- **`get_dataset` reported `row_count: null` for every dataset on the portal.**
-  It read a top-level `rowsCount` that datos.gov.co never sends, so the field
-  was structurally dead. The count now comes from the column profile
-  (`cachedContents.count`), which matches `count(*)` exactly on every dataset
-  checked. This decides whether a model previews a table or aggregates it
-  server-side, and a 462-row table and a 5.9-million-row one looked identical
-  before.
+## [0.5.0] — 2026-08-16
 
 ### Added
 
@@ -52,9 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/test_version_sync.py` fails if a portal is added without the notes
   following, or if the retired claim returns.
 
-## [0.5.0] — 2026-08-29
-
-### Added
 
 - **A release workflow using PyPI Trusted Publishing.** No API token exists
   anywhere — not in the repository, not in organisation secrets, not on a laptop
@@ -85,6 +62,25 @@ had to cross later.
 
 ### Changed
 
+- **Every HTTP client now carries the netguard request hook**, not only the
+  ArcGIS and file-reading ones. The Socrata and CKAN clients talk to fixed
+  hosts, so the guard was never what kept them on the portals — but
+  `docs/PRIVACY.md` and `SECURITY.md` say the guard checks every redirect hop
+  of every request, and until now that was true for two clients out of four.
+  The code matches the claim; a test per client keeps it that way.
+- **Lockfile moved off four dependencies with published advisories.**
+  `pip-audit` on the resolved runtime set flagged `cryptography` 48.0.0,
+  `starlette` 1.1.0 and `python-multipart` 0.0.29, all pulled in by the MCP
+  SDK, none exercised by a stdio server — no HTTP transport, no JWT — but a
+  first public release should not ship a lockfile that a scanner flags on day
+  one. The SDK moved 2.1.1 → 2.2.0 inside the existing `<3` bound; the suite
+  passes unchanged. The tooling pins (`ruff`, `mypy`) were deliberately left
+  where `.pre-commit-config.yaml` expects them.
+- The package docstring described the 0.2 server (two portals, CKAN 2.10.4,
+  separate tool families) and pointed at a gitignored directory. It now
+  describes the one that ships.
+
+
 - **`mcp>=1.9.0,<2` became `mcp>=2.1,<3`.** SDK 2.0 renamed `FastMCP` to
   `MCPServer` and replaced `mcp.server.fastmcp` with a stub that raises a
   ModuleNotFoundError naming the migration guide. Every call site moved:
@@ -103,13 +99,48 @@ had to cross later.
   a major can remove the import path this server is built on, and the lockfile
   protects this checkout rather than anyone installing the published wheel.
 
+### Fixed
+
+- **A quote inside a `tag` filter could close the Solr phrase.**
+  `city_search_datasets` built `tags:"<tag>"` with the tag interpolated raw, so a `"` in it ended the
+  phrase and turned whatever followed into query syntax. Tags are free text on
+  every portal — `Salud Pública`, `víctimas` — so the slug check that guards
+  `organization` and `group` would have rejected real ones; the tag is now
+  escaped as a Solr phrase instead. Read-only catalogue, so the worst outcome
+  was a broadened or malformed search, but a query builder should not have a
+  hole in one of three arguments.
+- **A raw SoQL query could carry a comment marker past the row cap.**
+  `quote_ident` has always refused `--`, `/*` and `*/`; `validate_soql` did
+  not, and `enforce_row_cap` appends its `LIMIT` to the end of the text, so
+  `SELECT * LIMIT 5000 -- ` would have left the cap where a comment could
+  swallow it. Whether Socrata honours `--` as a comment was never confirmed;
+  the validator now refuses the markers either way, which is the same rule
+  built queries already followed.
+- **`query_dataset_soql` never worked against a live portal.** It sent the row
+  cap as `$limit` beside `$query`, and Socrata refuses that combination with
+  HTTP 400 — *"If $query is used, all options must be specified in the query"*.
+  So the one tool offering full SoQL failed 100% of the time in production and
+  0% of the time in CI, because the hermetic tests mock the HTTP layer and this
+  was the only tool with no live test. The cap now travels inside the query
+  text via `soql.enforce_row_cap()`, which honours a caller's own smaller
+  `LIMIT`, lowers a larger one, and preserves a trailing `OFFSET`. Six hermetic
+  tests cover the rewrite and two live tests cover the portal round-trip,
+  including one that fails if Socrata ever starts accepting the combination.
+- **`get_dataset` reported `row_count: null` for every dataset on the portal.**
+  It read a top-level `rowsCount` that datos.gov.co never sends, so the field
+  was structurally dead. The count now comes from the column profile
+  (`cachedContents.count`), which matches `count(*)` exactly on every dataset
+  checked. This decides whether a model previews a table or aggregates it
+  server-side, and a 462-row table and a 5.9-million-row one looked identical
+  before.
+
 ### Verified
 
 536 hermetic tests and 34 live tests pass on the new SDK across Python 3.10,
 3.11, 3.12 and 3.13, with the tool surface unchanged at 24 tools over five
 portals and `server.json` still validating against the registry.
 
-## [0.4.0] — 2026-08-29
+## [0.4.0] — 2026-07-30
 
 Five portals, and two new ways to reach data no DataStore holds. **24 tools**
 (down from 28, covering twice the portals), 536 hermetic tests, 34 live, 92%
@@ -228,7 +259,7 @@ impersonating a browser to defeat a WAF, which this project does not do.
   set is bounded by what a Colombian government catalogue publishes. A test
   asserts the absence of any `url`-shaped parameter across all 24 tools.
 
-## [0.3.0] — 2026-08-29
+## [0.3.0] — 2026-07-29
 
 Three portals instead of two, and the coverage work the stress harness said was
 worth doing. 28 tools, 281 hermetic tests, 18 opt-in live tests.
@@ -310,7 +341,7 @@ worth doing. 28 tools, 281 hermetic tests, 18 opt-in live tests.
 `sweep/stress_test.py` now samples all three portals and reports per portal,
 including how many flagged resources turn out to have no table behind them.
 
-## [0.2.0] — 2026-08-29
+## [0.2.0] — 2026-07-26
 
 The first release intended to be installed by anyone else. 0.1.0 was a scaffold
 that would not have survived contact with PyPI.

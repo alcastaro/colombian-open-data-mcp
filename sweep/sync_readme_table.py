@@ -8,7 +8,9 @@ prose, and left behind when the measurement was redone. A 43% coverage claim, a
 told on purpose.
 
 So the READMEs carry a marker instead of a table, and this script fills it from
-`internal/reportes/PRUEBA_FUERZA_<fecha>.md`. Run it after a stress run. The
+`internal/reportes/PRUEBA_FUERZA_<fecha>.md` — a maintainer's local, gitignored
+directory, so on a fresh clone the script has nothing to read until a stress
+run has been written up there. Run it after a stress run. The
 numbers a reader sees are then the numbers the harness printed, by construction
 rather than by diligence.
 """

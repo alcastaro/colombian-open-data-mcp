@@ -328,3 +328,12 @@ class TestRequestTimeout:
     def test_the_timeout_message_names_the_variable(self):
         """A timeout that does not say what to do about it is a dead end."""
         assert socrata.TIMEOUT_ENV == "CO_MCP_TIMEOUT"
+
+
+async def test_the_socrata_client_installs_the_netguard_hook(client):
+    """Same promise as for the CKAN client: docs/PRIVACY.md says the guard
+    runs on every redirect hop of every request this server makes."""
+    from colombian_open_data_mcp.netguard import guard_request_hook
+
+    http = await client._get_client()
+    assert guard_request_hook in http.event_hooks["request"]

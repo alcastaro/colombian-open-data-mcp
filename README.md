@@ -19,7 +19,7 @@ MCP-compatible assistant (Claude Desktop, Claude Code, Cursor, VS Code Copilot,
 Gemini CLI) straight to the catalogues and the live data, with filtering and
 aggregation executed by the portals themselves rather than by the model.
 
-**24 tools · 529 hermetic tests · 34 live tests · 92% coverage · MIT**
+**24 tools · 569 hermetic tests · 36 live tests · 92% coverage · MIT**
 
 ---
 
@@ -276,10 +276,10 @@ multi-statement queries. See **[SECURITY.md](SECURITY.md)**.
 
 ```bash
 uv sync --group dev --extra dev
-uv run pytest                                  # 529 hermetic tests, 85% coverage floor
+uv run pytest                                  # 569 hermetic tests, 85% coverage floor
 uv run ruff check src/ tests/ sweep/
 uv run mypy src/colombian_open_data_mcp/
-RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 34 live tests, opt-in
+RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 36 live tests, opt-in
 uv run python sweep/stress_test.py --total 600 --seed 60606   # all five portals
 ```
 

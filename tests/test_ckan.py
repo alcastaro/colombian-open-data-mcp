@@ -420,3 +420,33 @@ def test_format_resource_marks_geospatial_as_not_queryable():
     )
     assert r["format"] == "SHP"
     assert r["queryable"] is False
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected"),
+    [
+        ("Salud Pública", 'tags:"Salud Pública"'),
+        ('hurto" OR organization:"otra', 'tags:"hurto\\" OR organization:\\"otra"'),
+        ("a\\b", 'tags:"a\\\\b"'),
+    ],
+)
+async def test_package_search_escapes_the_tag_phrase(client, httpx_mock, tag, expected):
+    """A quote inside the tag must not close the Solr phrase. Tags are free
+    text on every portal, so they cannot go through the slug check that
+    organizations and groups use; escaping is the only option left."""
+    httpx_mock.add_response(
+        url=re.compile(r".*/package_search.*"), json=ok({"count": 0, "results": []})
+    )
+    await client.package_search(tag=tag)
+    fq = httpx_mock.get_requests()[-1].url.params["fq"]
+    assert fq == expected
+
+
+async def test_the_ckan_client_installs_the_netguard_hook(client):
+    """The privacy notes promise every redirect hop is checked. That is only
+    true if every client carries the hook, not just the two that reach hosts a
+    catalogue names."""
+    from colombian_open_data_mcp.netguard import guard_request_hook
+
+    http = await client._get_client()
+    assert guard_request_hook in http.event_hooks["request"]

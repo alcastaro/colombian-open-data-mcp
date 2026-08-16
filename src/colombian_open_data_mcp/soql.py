@@ -237,6 +237,12 @@ def validate_soql(soql: str) -> str:
         raise SoqlError("Empty SoQL query")
     if ";" in s:
         raise SoqlError("Multiple statements are not allowed")
+    # quote_ident() already refuses these in built queries. Raw queries need
+    # the same rule, because enforce_row_cap() appends its LIMIT to the end of
+    # the text, and anything a comment marker could swallow would swallow that.
+    for bad in _IDENT_FORBIDDEN_SUBSTR:
+        if bad != ";" and bad in s:
+            raise SoqlError(f"SoQL contains a forbidden sequence: {bad!r}")
     if _SOQL_FORBIDDEN.search(s):
         raise SoqlError("SoQL contains a forbidden keyword (write ops disallowed)")
     return s

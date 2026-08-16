@@ -19,7 +19,7 @@ cualquier asistente compatible con MCP (Claude Desktop, Claude Code, Cursor, VS
 Code Copilot, Gemini CLI) directamente con los catálogos y con los datos vivos:
 el filtrado y la agregación los ejecutan los portales, no el modelo.
 
-**24 herramientas · 529 pruebas herméticas · 34 en vivo · 92% de cobertura · MIT**
+**24 herramientas · 569 pruebas herméticas · 36 en vivo · 92% de cobertura · MIT**
 
 ---
 
@@ -287,10 +287,10 @@ consultas multisentencia. Vea **[SECURITY.md](SECURITY.md)**.
 
 ```bash
 uv sync --group dev --extra dev
-uv run pytest                                  # 529 pruebas herméticas, piso de cobertura 85%
+uv run pytest                                  # 569 pruebas herméticas, piso de cobertura 85%
 uv run ruff check src/ tests/ sweep/
 uv run mypy src/colombian_open_data_mcp/
-RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 34 pruebas en vivo, opcionales
+RUN_LIVE_TESTS=1 uv run pytest tests/test_live.py -v   # 36 pruebas en vivo, opcionales
 uv run python sweep/stress_test.py --total 600 --seed 60606   # los cinco portales
 ```
 

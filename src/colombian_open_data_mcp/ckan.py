@@ -58,6 +58,7 @@ from typing import Any, Literal
 import httpx
 
 from . import USER_AGENT
+from .netguard import guard_request_hook
 from .retry import get_with_retries
 
 DEFAULT_TIMEOUT = 30.0
@@ -232,6 +233,15 @@ def is_valid_uuid(value: str) -> bool:
     return bool(_UUID.match(value or ""))
 
 
+def solr_phrase(value: str) -> str:
+    """Escape ``value`` for use inside a double-quoted Solr phrase.
+
+    Solr's phrase syntax only needs the quote and the backslash escaped; every
+    other character is literal inside the quotes.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def is_valid_dataset_id(value: str) -> bool:
     """True if value is a UUID or a CKAN URL slug.
 
@@ -292,6 +302,10 @@ class CkanClient:
                 headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
                 timeout=DEFAULT_TIMEOUT,
                 follow_redirects=True,
+                # Same reasoning as the Socrata client: the portal hosts are fixed,
+                # the hook is there so every redirect hop is checked, as the
+                # privacy notes say it is.
+                event_hooks={"request": [guard_request_hook]},
             )
             if _SSL_CTX is not None:
                 kwargs["verify"] = _SSL_CTX
@@ -359,7 +373,12 @@ class CkanClient:
                 raise CkanError(f"Not a valid group name: {group!r}")
             fq_parts.append(f"groups:{group}")
         if tag:
-            fq_parts.append(f'tags:"{tag}"')
+            # Tags are free text on every portal ("Salud Pública", "víctimas"),
+            # so the slug check used for organizations and groups would reject
+            # real ones. The tag travels as a quoted Solr phrase instead, and a
+            # quote or backslash inside it is escaped so it cannot close the
+            # phrase and turn the rest of the string into query syntax.
+            fq_parts.append(f'tags:"{solr_phrase(tag)}"')
 
         result = await self.action(
             "package_search",

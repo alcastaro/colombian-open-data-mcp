@@ -32,6 +32,7 @@ from typing import Any
 import httpx
 
 from . import USER_AGENT
+from .netguard import guard_request_hook
 from .retry import get_with_retries
 
 PORTAL_HOST = "www.datos.gov.co"
@@ -153,6 +154,11 @@ class SocrataClient:
                 headers=headers,
                 timeout=request_timeout(),
                 follow_redirects=True,
+                # The hosts this client talks to are hard-coded, so the guard is
+                # not what keeps it on datos.gov.co. It is what makes the redirect
+                # promise in docs/PRIVACY.md true for every client, not only for
+                # the two that reach hosts named by a catalogue.
+                event_hooks={"request": [guard_request_hook]},
             )
             if _SSL_CTX is not None:
                 kwargs["verify"] = _SSL_CTX
