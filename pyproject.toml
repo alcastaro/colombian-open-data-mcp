@@ -118,6 +118,7 @@ include = [
     "/SECURITY.md",
     "/CITATION.cff",
     "/LICENSE",
+    "/NOTICE.md",
     "/server.json",
     "/pyproject.toml",
 ]

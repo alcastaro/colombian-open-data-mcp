@@ -336,7 +336,11 @@ local, y hasta donde sabemos la única que cubre el catálogo distrital de Bogot
 
 ## Licencia
 
-MIT. Vea [LICENSE](LICENSE).
+MIT, para el código. Vea [LICENSE](LICENSE).
 
-Los datos pertenecen a las instituciones colombianas que los publican y se rigen
-por sus propias licencias. Vea **[docs/PRIVACIDAD.md](docs/PRIVACIDAD.md)**.
+La licencia MIT cubre solo este software y no otorga ningún derecho sobre los
+datos que recupera: cada conjunto conserva los términos que fijó la institución
+que lo publica, y esos términos viajan con el dato. **[NOTICE.md](NOTICE.md)**
+indica qué portal pertenece a qué institución, cómo comprobar la licencia de un
+conjunto antes de redistribuirlo, y por qué el servidor no almacena nada. Vea
+también **[docs/PRIVACIDAD.md](docs/PRIVACIDAD.md)**.

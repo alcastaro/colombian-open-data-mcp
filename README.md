@@ -325,7 +325,11 @@ national portal.
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+MIT, for the code. See [LICENSE](LICENSE).
 
-The data itself belongs to the publishing Colombian institutions and is
-governed by their own licences. See **[docs/PRIVACY.md](docs/PRIVACY.md)**.
+The MIT licence covers this software only and grants no rights over the data it
+retrieves: every dataset carries the terms its publishing institution set, and
+those terms travel with the data. **[NOTICE.md](NOTICE.md)** says which portal
+belongs to which institution, how to check a dataset's own licence before
+redistributing it, and why the server stores nothing. See also
+**[docs/PRIVACY.md](docs/PRIVACY.md)**.
