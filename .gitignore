@@ -29,6 +29,50 @@ CLAUDE.md
 #   internal/archivo/    superseded versions
 internal/
 
+# Credentials and environment files. NOTHING here is ever needed to run the
+# server — SOCRATA_APP_TOKEN is optional and belongs in the MCP client's own
+# config — but `.env` is the first file a contributor creates when a README
+# mentions an environment variable, and until now nothing stopped it being
+# committed. A token in a public repo is a token that must be revoked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials.json
+secrets.*
+*.secret
+
+# Local tool directories. `.code-review-graph/` ships its own nested .gitignore,
+# and that is not enough on its own: `uv build` does not honour nested ignore
+# files, which is exactly how an 852 KB SQLite database carrying absolute paths
+# under the maintainer's home directory ended up inside a built sdist. The rule
+# that protects the repository belongs at the root, where a build tool and a
+# careless `git add -A` both have to pass it.
+.code-review-graph/
+.aider*
+.cursor/
+.windsurf/
+
+# Data pulled from the portals while debugging. The server itself writes
+# nothing to disk by design — keeping data would make the operator a data
+# controller under Colombia's Ley 1581 — but a contributor inspecting a
+# malformed response naturally saves it next to the code, and portal extracts
+# can carry personal data. These never belong in the repository.
+*.csv
+*.xlsx
+*.xls
+*.geojson
+*.sqlite
+*.sqlite3
+*.db
+*.log
+!uv.lock
+
 # Test artifacts
 .coverage
 htmlcov/
