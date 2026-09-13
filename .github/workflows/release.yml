@@ -99,7 +99,7 @@ jobs:
       # the whole workflow: a short-lived OIDC token minted for this run.
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
