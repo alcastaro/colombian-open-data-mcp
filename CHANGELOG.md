@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`NOTICE.md`, because the licence file could not carry it.** GitHub reported
+  this repository as having no declared licence — `NOASSERTION` rather than MIT
+  — and the cause was a note about data ownership appended after the MIT text,
+  which stops GitHub's detector recognising the file. `LICENSE` is the MIT text
+  and nothing else now. The note moved to `NOTICE.md` and grew into what it was
+  trying to say: the MIT licence covers the code and grants no rights over the
+  data, each of the five portals belongs to a named institution, every dataset
+  carries its publisher's own terms, and the server stores nothing because
+  retaining portal data would make whoever runs it a data controller under Ley
+  1581 de 2012. Both READMEs link it and the sdist carries it.
+
 - **`CO_MCP_TIMEOUT`, an operator override for the request timeout.** Twenty
   seconds is right for the catalogue and wrong for the few datasets that are
   genuinely large: a `median()` over SECOP II's 5.98 million contracts answers
@@ -61,6 +72,20 @@ that the package ships current rather than pinned below a major it would have
 had to cross later.
 
 ### Changed
+
+- **`.gitignore` closes the gaps a public repository cannot afford.** `.env` was
+  not ignored, while the README and `docs/clients.md` both tell the reader that
+  `SOCRATA_APP_TOKEN` is an environment variable — so the first file anyone
+  creates after reading them was one nothing stopped from being committed.
+  `.env.example` stays allowed. `.code-review-graph/` had been protected only by
+  its own nested ignore file, which is not enough: `uv build` does not honour
+  nested ignores, and that is exactly how an 852 KB SQLite database carrying
+  absolute paths reached a built sdist once. Data extracts — CSV, XLSX, GeoJSON,
+  SQLite, logs — are ignored too, because the server writes nothing to disk on
+  purpose but a contributor debugging a malformed response saves the file next
+  to the code, and portal extracts can carry personal data.
+- **Dependency and action bumps.** `anyio` 4.13.0 → 4.14.2, `astral-sh/setup-uv`
+  v4 → v7 and `github/codeql-action` v3 → v4.
 
 - **Every HTTP client now carries the netguard request hook**, not only the
   ArcGIS and file-reading ones. The Socrata and CKAN clients talk to fixed
