@@ -34,6 +34,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from . import __version__, ckan, ckan_tools, esri, socrata, soql
+from .netguard import NetGuardError
 
 logging.basicConfig(
     stream=sys.stderr,
@@ -78,6 +79,17 @@ def _err(exc: Exception, hint: str, **extra: Any) -> dict:
     `hint` tells the model what to try next, which is the difference between a
     dead end and a recoverable turn.
     """
+    if isinstance(exc, NetGuardError):
+        # The guard fires before the request leaves, so the caller-supplied hint
+        # ("try a broader query", "check the dataset id") would be advice about
+        # the wrong problem. Nothing the model passes can change the outcome.
+        hint = (
+            "The address this request would have reached was refused by the "
+            "server's network policy, or could not be resolved at all. That is a "
+            "property of the address and of this machine's network, not of your "
+            "request: no argument you change will help. A proxy that blocks the "
+            "portal, or a host with no DNS, is the usual cause."
+        )
     return {"error": str(exc), "hint": hint, **extra}
 
 
@@ -134,7 +146,7 @@ async def search_datasets(
             limit=limit,
             offset=offset,
         )
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT)
     return socrata.format_catalog_response(raw)
 
@@ -160,7 +172,7 @@ async def get_dataset(
         return {"error": f"Not a valid 4x4 id: {id!r}", "hint": "IDs look like 'abcd-1234'."}
     try:
         view = await _client.get_view(id)
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT, dataset_id=id)
     return socrata.format_view(view)
 
@@ -172,7 +184,7 @@ async def list_recent_datasets(
     """Datasets most recently updated on datos.gov.co. Useful for monitoring."""
     try:
         raw = await _client.catalog_recent(limit=limit)
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT)
     return socrata.format_catalog_response(raw)
 
@@ -182,7 +194,7 @@ async def list_categories() -> dict:
     """Top-level categories on datos.gov.co (Socrata's 'group' analogue)."""
     try:
         items = await _client.domain_categories()
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT)
     return {"country": "CO", "portal": "datos.gov.co", "count": len(items), "categories": items}
 
@@ -192,7 +204,7 @@ async def list_tags() -> dict:
     """All tags published on datos.gov.co."""
     try:
         items = await _client.domain_tags()
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT)
     return {"country": "CO", "portal": "datos.gov.co", "count": len(items), "tags": items}
 
@@ -204,7 +216,7 @@ async def list_owners(
     """Publishing entities on datos.gov.co, with each one's dataset count."""
     try:
         items = await _client.domain_owners(limit=limit)
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT)
     return {"country": "CO", "portal": "datos.gov.co", "count": len(items), "owners": items}
 
@@ -225,7 +237,7 @@ async def autocomplete(
     """
     try:
         items = await _client.autocomplete(kind=kind, query=query, limit=limit)
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT, kind=kind, query=query)
     except ValueError as e:
         return {"error": str(e), "hint": "kind must be dataset, tag, category or owner."}
@@ -237,7 +249,7 @@ async def get_site_stats() -> dict:
     """Portal-wide stats for datos.gov.co: total datasets, categories, tags."""
     try:
         return await _client.site_stats()
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT)
 
 
@@ -264,7 +276,7 @@ async def download_dataset_preview(
         result = await _client.resource_query(
             id, soql.compose_soql_params(limit=rows, offset=offset)
         )
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT, dataset_id=id)
     return {
         "country": "CO",
@@ -325,7 +337,7 @@ async def filter_dataset(
     )
     try:
         rows = await _client.resource_query(id, params)
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT, dataset_id=id, params=params)
     return {
         "country": "CO",
@@ -394,7 +406,7 @@ async def aggregate_dataset(
     )
     try:
         rows = await _client.resource_query(id, params)
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT, dataset_id=id, params=params)
     return {
         "country": "CO",
@@ -443,7 +455,7 @@ async def query_dataset_soql(
     params = {"$query": cleaned}
     try:
         rows = await _client.resource_query(id, params)
-    except socrata.SocrataError as e:
+    except (socrata.SocrataError, NetGuardError) as e:
         return _err(e, _NATIONAL_HINT, dataset_id=id, params=params)
     return {
         "country": "CO",

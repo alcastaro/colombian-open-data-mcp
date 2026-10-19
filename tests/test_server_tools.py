@@ -678,3 +678,52 @@ async def test_a_layer_that_refuses_a_count_still_returns_its_schema(monkeypatch
     out = await fn("city_esri_service_info")(city="bogota", resource_id=RESOURCE_UUID)
     assert out["name"] == "Capa"
     assert out["feature_count"] is None
+
+
+# ─── A blocked or unresolvable network returns an envelope, not a traceback ──
+
+
+NATIONAL_TOOLS_THAT_CALL_OUT = [
+    ("get_site_stats", {}),
+    ("search_datasets", {"query": "salud"}),
+    ("list_categories", {}),
+    ("list_tags", {}),
+    ("list_owners", {}),
+    ("list_recent_datasets", {}),
+    ("autocomplete", {"kind": "dataset", "query": "sal"}),
+    ("get_dataset", {"id": "abcd-1234"}),
+    ("download_dataset_preview", {"id": "abcd-1234"}),
+    ("filter_dataset", {"id": "abcd-1234", "filters": [{"col": "a", "op": "=", "val": 1}]}),
+    ("aggregate_dataset", {"id": "abcd-1234", "aggregations": [{"fn": "count"}]}),
+    ("query_dataset_soql", {"id": "abcd-1234", "soql_query": "SELECT a"}),
+]
+
+
+@pytest.mark.parametrize("tool,kwargs", NATIONAL_TOOLS_THAT_CALL_OUT)
+async def test_national_tools_survive_a_netguard_refusal(tool, kwargs, monkeypatch):
+    """Every national tool must convert a NetGuardError into the error envelope.
+
+    This is not hypothetical. The guard was installed on the Socrata client so
+    the redirect promise in docs/PRIVACY.md would hold for every client, and
+    that made a new exception type reachable from twelve tools that only caught
+    SocrataError. Running the server behind a proxy, or anywhere DNS does not
+    resolve, turned every national tool into ``UnexpectedToolError: Error
+    executing tool <name>`` — an opaque protocol error with a traceback inside
+    and no hint, which is the exact outcome _err exists to prevent.
+    """
+    import socket
+
+    from colombian_open_data_mcp import netguard
+
+    monkeypatch.delenv(netguard.MODE_ENV, raising=False)
+
+    async def refuses(host: str):
+        raise socket.gaierror(8, "nodename nor servname provided, or not known")
+
+    monkeypatch.setattr(netguard, "resolve_host", refuses)
+
+    out = await fn(tool)(**kwargs)
+
+    assert isinstance(out, dict), f"{tool} did not return a dict"
+    assert "error" in out and "hint" in out, f"{tool} returned {out!r}"
+    assert "network policy" in out["hint"] or "resolved" in out["hint"]
