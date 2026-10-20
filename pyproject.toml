@@ -169,4 +169,9 @@ dev = [
     "mypy>=2.3.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.5",
+    # Not a runtime dependency: it stays an extra, because only nine of the
+    # Policía's 217 files need it. It is in the dev group so the suite runs
+    # complete for anyone working on the repository, and the tests that use
+    # it skip rather than fail where it is absent.
+    "xlrd>=2.0",
 ]

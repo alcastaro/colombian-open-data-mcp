@@ -22,6 +22,18 @@ X2025 = FIXTURES / "homicidio_2025.xlsx"
 X2023 = FIXTURES / "homicidio_sin_anio_2023.xlsx"
 XLS2022 = FIXTURES / "homicidios_2022.xls"
 
+try:
+    import xlrd  # noqa: F401
+
+    HAS_XLRD = True
+except ImportError:  # pragma: no cover - depends on how the env was installed
+    HAS_XLRD = False
+
+#: The legacy format is an optional extra, so a suite installed without it must
+#: skip these rather than fail. The error path when it is missing is covered by
+#: test_a_legacy_file_without_xlrd_says_how_to_install_it below.
+needs_xlrd = pytest.mark.skipif(not HAS_XLRD, reason="the 'xls' extra is not installed")
+
 
 def parse(path: Path) -> dict:
     fmt = "xls" if path.suffix == ".xls" else "xlsx"
@@ -106,6 +118,7 @@ def test_the_period_inside_the_file_recovers_the_missing_year():
     assert "2023" in out["period_text"]
 
 
+@needs_xlrd
 def test_the_period_also_reveals_a_partial_year():
     """2022 runs to 31 August. A series built from file names alone would
     compare eight months against twelve and call it a drop in homicide."""
@@ -133,7 +146,7 @@ def test_a_workbook_without_the_known_columns_fails_loudly():
         police.find_header([["a", "b"], ["c", "d"]])
 
 
-@pytest.mark.parametrize("path", [X2025, X2023, XLS2022])
+@pytest.mark.parametrize("path", [X2025, X2023, pytest.param(XLS2022, marks=needs_xlrd)])
 def test_every_year_normalises_to_the_same_columns(path):
     """The source renames its own columns between years: FECHA HECHO and
     FECHA, ARMAS MEDIOS and ARMA MEDIO, three spellings of the age group."""
@@ -142,7 +155,7 @@ def test_every_year_normalises_to_the_same_columns(path):
         assert expected in out["columns"], (path.name, out["columns"])
 
 
-@pytest.mark.parametrize("path", [X2025, X2023, XLS2022])
+@pytest.mark.parametrize("path", [X2025, X2023, pytest.param(XLS2022, marks=needs_xlrd)])
 def test_dates_parse_in_all_three_shapes(path):
     """Text dd/mm/yyyy, a datetime cell, and an .xls serial number."""
     out = parse(path)
@@ -153,7 +166,7 @@ def test_dates_parse_in_all_three_shapes(path):
 # ─── what must never come back ───────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("path", [X2025, X2023, XLS2022])
+@pytest.mark.parametrize("path", [X2025, X2023, pytest.param(XLS2022, marks=needs_xlrd)])
 def test_the_officers_who_signed_the_report_are_never_returned(path):
     """The footer names the people who prepared, reviewed and authorised each
     report. That is personal data of identifiable people and it is incidental
@@ -255,3 +268,23 @@ def test_the_notes_say_what_the_numbers_are_and_are_not():
     assert "denunciados" in blob
     assert "prevalence" in blob
     assert "under-registered" in blob
+
+
+def test_a_legacy_file_without_xlrd_says_how_to_install_it(monkeypatch):
+    """The failure a user hits on nine of the 217 files has to name the fix.
+
+    An ImportError surfacing as "No module named 'xlrd'" tells someone reading
+    a homicide series nothing they can act on.
+    """
+    import builtins
+
+    real = builtins.__import__
+
+    def sin_xlrd(name, *a, **kw):
+        if name == "xlrd":
+            raise ImportError("No module named 'xlrd'")
+        return real(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", sin_xlrd)
+    with pytest.raises(police.PoliceError, match=r"colombian-open-data-mcp\[xls\]"):
+        police.parse_workbook(XLS2022.read_bytes(), "xls")

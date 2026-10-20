@@ -247,6 +247,7 @@ dev = [
     { name = "pytest-httpx" },
     { name = "pyyaml" },
     { name = "ruff" },
+    { name = "xlrd" },
 ]
 
 [package.metadata]
@@ -272,6 +273,7 @@ dev = [
     { name = "pytest-httpx", specifier = ">=0.30" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.16.5" },
+    { name = "xlrd", specifier = ">=2.0" },
 ]
 
 [[package]]
