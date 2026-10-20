@@ -16,7 +16,7 @@ repository.
 
 **colombian-open-data-mcp** connects an AI assistant to Colombia's open government
 data — the national portal `datos.gov.co` plus the territorial portals of Bogotá,
-Cali, Valle del Cauca and Cartagena. It exposes 24 read-only tools that search
+Cali, Valle del Cauca and Cartagena. It exposes 26 read-only tools that search
 catalogues, describe datasets and return rows, with filtering and aggregation
 executed by the portals themselves.
 

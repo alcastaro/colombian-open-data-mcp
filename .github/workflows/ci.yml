@@ -78,7 +78,7 @@ jobs:
           from colombian_open_data_mcp import __version__, ckan
           tools = asyncio.run(mcp.list_tools())
           names = [t.name for t in tools]
-          assert len(names) == 24, names
+          assert len(names) == 26, names
           # Twelve national tools plus twelve city_* ones covering four portals.
           # Before 0.4 this was eight tools per portal; four portals that way
           # would be forty-four schemas saying the same thing four times.

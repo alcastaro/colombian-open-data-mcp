@@ -19,7 +19,7 @@ MCP-compatible assistant (Claude Desktop, Claude Code, Cursor, VS Code Copilot,
 Gemini CLI) straight to the catalogues and the live data, with filtering and
 aggregation executed by the portals themselves rather than by the model.
 
-**24 tools · 569 hermetic tests · 36 live tests · 92% coverage · MIT**
+**26 tools · 569 hermetic tests · 36 live tests · 92% coverage · MIT**
 
 ---
 
@@ -112,6 +112,53 @@ Through 0.3 each portal had its own family of eight prefixed tools. Four
 portals that way would be thirty-two near-identical schemas, so 0.4 collapsed
 them: twelve tools covering twice the ground, and a fifth portal is now a
 descriptor and nothing else.
+
+### Policía Nacional — crime statistics (experimental)
+
+| Tool | What it does |
+|---|---|
+| `police_list_crime_files` | List the published crime spreadsheets, grouped by crime. |
+| `police_read_crime_file` | Read one of them: rows, or a rollup by year, month, municipality, sex or age group. |
+
+**These two are not like the other twenty-four, and the difference matters.**
+Everything else here talks to Socrata or CKAN: a catalogue, stable identifiers,
+an API contract. These talk to a page on `policia.gov.co` with none of those,
+whose URL already ends in `-old`, publishing 217 Excel files with inconsistent
+names. It can change shape or disappear without notice, and when it does these
+two break while the rest keep working.
+
+They exist for what they add, which is narrower than it first looks. The DIJIN
+publishes eleven crime datasets to datos.gov.co and intentional homicide is not
+among them, so these files look at first like the only route to it. They are
+not: the Ministerio de Defensa's observatory publishes `m8fd-ahd9`, homicide
+from 2003 to 2026 by municipality, with a real date column, urban/rural zone,
+presumed modality and a characterisation field that marks feminicide, under
+CC BY-SA. For homicide that dataset is better on every structural count, and
+the two agree: both put 2023 at 13,555 cases.
+
+What these files add is the **age group of the victim**, which `m8fd-ahd9` does
+not carry, and a handful of offences the portal route does not cover. Reach for
+`search_datasets` first; reach for these when you need an age breakdown.
+
+Three things the source does that the tools correct:
+
+- **The file name does not give the year.** 34 of the 217 files carry none, and
+  the least informative of them holds 2023 — a year anyone reading file names
+  records as missing. The year is authoritative only inside the file, on its
+  `PERÍODO` line, which `police_read_crime_file` returns as `period_year`. That
+  line also reveals a partial year: 2022 runs to 31 August.
+- **The sheet ends with a grand total** carrying every dimension blank.
+  Counting it reports 27,110 homicides for a year that had 13,555.
+- **The footer names the three officers** who prepared, reviewed and authorised
+  each report. Those lines are never returned: personal data of identifiable
+  people, incidental to a homicide count.
+
+The counts are *casos denunciados ante la Policía* — reports received, not
+prevalence — and the last month of any cut is under-registered. The page
+declares no licence, so the tools say so rather than assuming one. Nine files
+are in the legacy `.xls` format and need the optional extra:
+`pip install 'colombian-open-data-mcp[xls]'`.
+
 
 ## What each portal can and cannot answer
 

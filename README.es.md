@@ -19,7 +19,7 @@ cualquier asistente compatible con MCP (Claude Desktop, Claude Code, Cursor, VS
 Code Copilot, Gemini CLI) directamente con los catálogos y con los datos vivos:
 el filtrado y la agregación los ejecutan los portales, no el modelo.
 
-**24 herramientas · 569 pruebas herméticas · 36 en vivo · 92% de cobertura · MIT**
+**26 herramientas · 569 pruebas herméticas · 36 en vivo · 92% de cobertura · MIT**
 
 ---
 
@@ -116,6 +116,56 @@ Hasta la versión 0.3 cada portal tenía su propia familia de ocho herramientas
 con prefijo. Cuatro portales de esa forma serían treinta y dos esquemas casi
 idénticos, así que la 0.4 los colapsó: doce herramientas que cubren el doble de
 terreno, y un quinto portal pasa a ser un descriptor y nada más.
+
+### Policía Nacional — estadística delictiva (experimental)
+
+| Herramienta | Qué hace |
+|---|---|
+| `police_list_crime_files` | Lista los archivos de delitos publicados, agrupados por delito. |
+| `police_read_crime_file` | Lee uno: filas, o un resumen por año, mes, municipio, sexo o grupo etario. |
+
+**Estas dos no son como las otras veinticuatro, y la diferencia importa.** Todo
+lo demás aquí habla con Socrata o con CKAN: un catálogo, identificadores
+estables, un contrato de API. Estas hablan con una página de `policia.gov.co`
+que no tiene nada de eso, cuya dirección ya termina en `-old`, y que publica 217
+archivos de Excel con nombres inconsistentes. Puede cambiar de forma o
+desaparecer sin aviso, y cuando lo haga estas dos se rompen mientras las demás
+siguen funcionando.
+
+Existen por lo que añaden, que es menos de lo que parece a primera vista. La
+DIJIN publica once conjuntos de delitos en datos.gov.co y el homicidio
+intencional no está entre ellos, así que estos archivos parecen al principio la
+única vía para llegar a él. No lo son: el Observatorio del Ministerio de
+Defensa publica `m8fd-ahd9`, homicidio de 2003 a 2026 por municipio, con
+columna de fecha real, zona urbana o rural, modalidad presunta y un campo de
+caracterización que marca el feminicidio, bajo CC BY-SA. Para homicidio ese
+conjunto es mejor en todos los aspectos estructurales, y ambos coinciden: los
+dos sitúan 2023 en 13.555 casos.
+
+Lo que estos archivos añaden es el **grupo etario de la víctima**, que
+`m8fd-ahd9` no trae, y unos pocos delitos que la vía del portal no cubre. Use
+`search_datasets` primero; use estos cuando necesite el desglose por edad.
+
+Tres cosas que hace la fuente y que las herramientas corrigen:
+
+- **El nombre del archivo no da el año.** 34 de los 217 no lo llevan, y el menos
+  informativo de todos contiene 2023, un año que cualquiera que lea nombres de
+  archivo anota como faltante. El año solo es fiable dentro del archivo, en su
+  línea de `PERÍODO`, que `police_read_crime_file` devuelve como `period_year`.
+  Esa misma línea revela los años parciales: 2022 llega hasta el 31 de agosto.
+- **La hoja termina con una fila de totales** con todas las dimensiones vacías.
+  Contarla reporta 27.110 homicidios en un año que tuvo 13.555.
+- **El pie trae los nombres de los tres funcionarios** que elaboraron, revisaron
+  y autorizaron cada informe. Esas líneas nunca se devuelven: son datos
+  personales de personas identificables y son accesorias a un conteo de
+  homicidios.
+
+Las cifras son *casos denunciados ante la Policía*, denuncias recibidas y no
+prevalencia, y el último mes de cada corte está subregistrado. La página no
+declara licencia, así que las herramientas lo dicen en vez de suponer una.
+Nueve archivos están en el formato antiguo `.xls` y necesitan el extra
+opcional: `pip install 'colombian-open-data-mcp[xls]'`.
+
 
 ## Qué puede y qué no puede responder cada portal
 

@@ -5,6 +5,70 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Two experimental tools over the Policía Nacional's crime spreadsheets**,
+  `police_list_crime_files` and `police_read_crime_file`. They are the only
+  thing here that is not an open-data portal: a page on `policia.gov.co` with
+  no API, no catalogue and no stable identifiers, whose URL already ends in
+  `-old`, publishing 217 Excel files with inconsistent names. That is said in
+  both tool descriptions, in both READMEs and here, because a model choosing a
+  source has to be able to tell that one of them can vanish.
+
+  They earn their place on a narrower claim than the one they were added for.
+  The DIJIN publishes eleven crime datasets to datos.gov.co and intentional
+  homicide is not among them, which makes these files look like the only route
+  to it. They are not: `m8fd-ahd9`, from the Ministerio de Defensa's
+  observatory, carries homicide from 2003 to 2026 by municipality with a real
+  date column, urban/rural zone, presumed modality and a field marking
+  feminicide, under CC BY-SA. The two agree — both put 2023 at 13,555 cases —
+  and that one is better on every structural count. What the spreadsheets add
+  is the victim's **age group**, which `m8fd-ahd9` does not carry.
+
+  Three defects in the source the tools correct, each found by parsing real
+  files rather than by reading the page:
+
+  - **The file name does not give the year.** 34 of the 217 files carry none,
+    and the least informative of them holds 2023 — a year anyone going by file
+    names records as missing entirely. The year is authoritative only inside
+    the file, on its `PERÍODO` line, returned as `period_year`. That line also
+    exposes partial years: 2022 runs to 31 August, so a series built from file
+    names compares eight months against twelve and reads it as a fall in
+    homicide.
+  - **The sheet ends with a grand total** carrying every dimension blank.
+    Counting it reported 27,110 homicides for a year that had 13,555.
+  - **The footer names the three officers** who prepared, reviewed and
+    authorised each report. Those lines are never returned: personal data of
+    identifiable people, incidental to a homicide count.
+
+  The source also renames its own columns between years — `FECHA HECHO` and
+  `FECHA`, `ARMAS MEDIOS` and `ARMA MEDIO`, three spellings of the age group —
+  so columns are matched by substring rather than by an exact table, and dates
+  arrive in three shapes (text `dd/mm/yyyy`, a datetime cell, and an Excel
+  serial number in `.xls`).
+
+  A file id is a bare file name and never a URL: the host and the whole path
+  prefix are constants, so the only thing a caller varies is the last path
+  segment, and a segment containing a separator is refused before a URL is
+  built. `test_no_tool_accepts_a_url` still passes over all 26 tools.
+
+  Licence: the page declares none, so the tools say so rather than assuming
+  CC BY-SA as the portals do.
+
+- **An optional `xls` extra** (`pip install 'colombian-open-data-mcp[xls]'`).
+  Nine of the 217 files are in the legacy format openpyxl cannot read. It is an
+  extra rather than a dependency because the other 208, and every portal here,
+  read without it.
+
+### Changed
+
+- Tool count is 26. The two new ones are a family of their own rather than a
+  fifth `city` value: every other tool talks to a portal with a catalogue and
+  an API, and folding these in would have told a model they are as dependable
+  as the rest.
+
 ## [0.5.0] — 2026-08-16
 
 ### Added

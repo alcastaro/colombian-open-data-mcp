@@ -73,6 +73,15 @@ secrets.*
 *.log
 !uv.lock
 
+# The one place spreadsheets belong in this repository. These are trimmed
+# copies of real Policía Nacional crime files, and the police tools cannot be
+# tested without them: the parser exists because that source puts its header
+# at a different row each year, ends the sheet with a grand total and signs
+# the footer with three officers' names. Without this exception the rule above
+# silently drops them from git and from the built package, which it did once.
+!tests/fixtures/**/*.xlsx
+!tests/fixtures/**/*.xls
+
 # Test artifacts
 .coverage
 htmlcov/

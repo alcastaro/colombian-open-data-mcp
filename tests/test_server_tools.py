@@ -53,18 +53,37 @@ async def _tools():
 
 
 async def test_expected_tool_families_are_registered():
-    """Twelve national tools plus twelve city ones, covering four portals.
+    """Twelve national, twelve city, two Policía — three families, 26 tools.
 
     Before v0.4 this was twelve plus eight per portal. Four portals that way
     would be forty-four tools saying the same thing four times; the `city`
     parameter covers twice the portals in half the surface.
+
+    The two police_* tools are deliberately a family of their own rather than
+    a fifth `city` value. Every other tool here talks to a portal with a
+    catalogue and an API; those two scrape spreadsheets off an institutional
+    page. Folding them in would have told a model they are as dependable as
+    the rest.
     """
     tools = await _tools()
-    national = {n for n in tools if not n.startswith("city_")}
+    police_tools = {n for n in tools if n.startswith("police_")}
     city_tools = {n for n in tools if n.startswith("city_")}
+    national = set(tools) - police_tools - city_tools
     assert len(national) == 12
     assert len(city_tools) == 12
-    assert len(tools) == 24
+    assert len(police_tools) == 2
+    assert len(tools) == 26
+
+
+async def test_the_police_tools_announce_that_they_are_experimental():
+    """A model choosing between sources has to be able to tell that one of
+    them is a page that can vanish, and the description is where it looks."""
+    from colombian_open_data_mcp.server import mcp
+
+    for tool in await mcp.list_tools():
+        if tool.name.startswith("police_"):
+            assert "EXPERIMENTAL" in (tool.description or ""), tool.name
+            assert "not an open-data portal" in (tool.description or ""), tool.name
 
 
 @pytest.mark.parametrize("suffix", CITY_SUFFIXES)

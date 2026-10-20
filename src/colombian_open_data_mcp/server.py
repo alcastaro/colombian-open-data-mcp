@@ -33,7 +33,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from . import __version__, ckan, ckan_tools, esri, socrata, soql
+from . import __version__, ckan, ckan_tools, esri, police, socrata, soql, tabular
 from .netguard import NetGuardError
 
 logging.basicConfig(
@@ -493,6 +493,119 @@ def _tool_count() -> int | None:
         return len(mcp._tool_manager._tools)  # type: ignore[attr-defined]
     except Exception:
         return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Policía Nacional — estadística delictiva (EXPERIMENTAL, not a portal)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_POLICE_WARNING = (
+    "EXPERIMENTAL. This is the only source here that is not an open-data portal: "
+    "it is a page on policia.gov.co with no API, no catalogue and no stable "
+    "identifiers, whose URL already ends in '-old'. It can change shape or "
+    "disappear without notice. Everything else in this server talks to Socrata or "
+    "CKAN and is unaffected when it does."
+)
+
+
+def _police_err(e: Exception) -> dict:
+    return _err(
+        e,
+        "The Policía's statistics page has no API and changes without notice. "
+        "Call police_list_crime_files first: it reports what is published right "
+        "now, and fails loudly rather than returning an empty list if the page "
+        "has changed structure.",
+    )
+
+
+@mcp.tool(
+    name="police_list_crime_files",
+    annotations=_ro("Catálogo de estadística delictiva (Policía, experimental)"),
+    description=(
+        "List the crime spreadsheets the Policía Nacional publishes, grouped by "
+        "crime, with the file id you pass to police_read_crime_file.\n\n"
+        "Use this for the victim's **age group**, which the portal route does not "
+        "carry. For homicide itself prefer `m8fd-ahd9` on datos.gov.co (Observatorio "
+        "MDN, 2003-2026, with urban/rural zone and a feminicide marker); the two agree "
+        "on 2023 at 13,555 cases and that one has a real date column and a licence.\n\n"
+        "`year_hint` comes from the file name and is a hint, never a fact: 34 of the "
+        "215 files carry no year at all, and one of those holds 2023. The year is "
+        "only authoritative inside the file, which police_read_crime_file returns as "
+        "`period_year`.\n\n" + _POLICE_WARNING
+    ),
+)
+async def police_list_crime_files(
+    crime: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Filter by crime, accent- and case-insensitive substring "
+                "(e.g. 'homicidio intencional', 'delitos sexuales')."
+            )
+        ),
+    ] = None,
+) -> dict:
+    """What the Policía publishes right now, grouped by crime."""
+    try:
+        entries = await police.fetch_index()
+    except (police.PoliceError, NetGuardError) as e:
+        return _police_err(e)
+    out = police.summarise_index(entries)
+    if crime:
+        needle = police._slug(crime)
+        out["crimes"] = {k: v for k, v in out["crimes"].items() if needle in k}
+        out["filtered_by"] = crime
+    return out
+
+
+@mcp.tool(
+    name="police_read_crime_file",
+    annotations=_ro("Leer un archivo de estadística delictiva (Policía, experimental)"),
+    description=(
+        "Read one crime spreadsheet: its rows, or a rollup when you pass "
+        "`group_by`.\n\n"
+        "Pass `file_id` exactly as police_list_crime_files reports it. The address is "
+        "rebuilt from a fixed host and path, so a file id cannot point anywhere "
+        "else.\n\n"
+        "A file holds tens of thousands of rows, so prefer `group_by` — for example "
+        "['anio','mes'] for a monthly series, or ['codigo_dane'] for a municipal "
+        "one.\n\n"
+        "The counts are **casos denunciados ante la Policía**, reports received "
+        "rather than prevalence. The last month of any cut is under-registered. The "
+        "names of the officers who signed the report are never returned.\n\n" + _POLICE_WARNING
+    ),
+)
+async def police_read_crime_file(
+    file_id: Annotated[
+        str,
+        Field(
+            description=(
+                "File name exactly as the catalogue reports it, e.g. "
+                "'Homicidio Intencional2025.xlsx'."
+            )
+        ),
+    ],
+    rows: Annotated[int, Field(description="Rows when not grouping (1-500).", ge=1, le=500)] = 25,
+    group_by: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "Roll up by any of: anio, mes, departamento, municipio, "
+                "codigo_dane, genero, grupo_etario."
+            )
+        ),
+    ] = None,
+) -> dict:
+    """One crime report, parsed and cleaned."""
+    if not police.is_valid_file_id(file_id):
+        return {
+            "error": f"Not a valid file id: {file_id!r}",
+            "hint": "Ids are bare file names ending in .xlsx or .xls, from police_list_crime_files.",
+        }
+    try:
+        return await police.read_crime_file(file_id, rows=rows, group_by=group_by)
+    except (police.PoliceError, NetGuardError, tabular.TabularError) as e:
+        return _police_err(e)
 
 
 async def _close_clients() -> None:

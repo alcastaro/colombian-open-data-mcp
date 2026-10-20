@@ -65,6 +65,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Nine of the Policía Nacional's 215 crime files are in the legacy .xls format,
+# which openpyxl does not read. It is an extra rather than a dependency because
+# the other 206 files, and every portal this server talks to, read without it.
+xls = ["xlrd>=2.0"]
+
 # Kept so `pip install .[dev]` works. The same names are repeated under
 # [dependency-groups].dev below because `uv sync` with no flags installs
 # groups but not extras — a contributor following the README on a clean
