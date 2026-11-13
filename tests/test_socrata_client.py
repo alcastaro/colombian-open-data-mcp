@@ -337,3 +337,18 @@ async def test_the_socrata_client_installs_the_netguard_hook(client):
 
     http = await client._get_client()
     assert guard_request_hook in http.event_hooks["request"]
+
+
+async def test_request_urls_are_not_logged_at_the_default_level(caplog, httpx_mock):
+    """Query contents stay out of the log (docs/PRIVACY.md): the httpx logger,
+    which writes full request URLs at INFO, runs at WARNING."""
+    import logging
+
+    from colombian_open_data_mcp import server  # noqa: F401  (configures logging)
+
+    c = socrata.SocrataClient()
+    httpx_mock.add_response(url=ANY_CATALOG, json={"results": []})
+    with caplog.at_level(logging.INFO):
+        await c.catalog_search(query="PEREZ GOMEZ")
+    await c.close()
+    assert "PEREZ" not in caplog.text

@@ -41,6 +41,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+# Request URLs carry the search terms. httpx stays at WARNING so query
+# contents are never logged (docs/PRIVACY.md).
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("colombian-open-data-mcp")
 
 # `version` is a real constructor argument in SDK v2. Under v1 it was not, and

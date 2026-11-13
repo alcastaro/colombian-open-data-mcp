@@ -69,6 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an API, and folding these in would have told a model they are as dependable
   as the rest.
 
+### Fixed
+
+- **Request URLs stay out of the log.** The `httpx` logger runs at WARNING, so
+  search terms carried in request URLs are never written, as `docs/PRIVACY.md`
+  states.
+
 ## [0.5.0] — 2026-08-16
 
 ### Added
